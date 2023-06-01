@@ -1,0 +1,447 @@
+---
+author: Simon Anders
+format: html
+toc: true
+keep-md: true   
+---    
+
+## Applied Mathematics in Biology: Single Cell Omics
+
+Lecture Notes, Part 3
+
+Simon Anders, Univ. Heidelberg, 2023-06
+
+## Standard analysis of a single sample, done manually
+
+In this notebook, we perform an analysis of a single-cell dataset, in the style
+of a standard Seurat analysis, but performing all steps manually.
+
+### Example data
+
+We use the same example data as before. See [previous part](read_10x.html)
+for a description of the study.
+
+This time, we ignore the sample labels (hash tags) and consider this just 
+one big pool of cells, as our goal is to annotate the different cell types.
+
+We load the data as before
+
+```{r}
+suppressPackageStartupMessages(
+  library( tidyverse ) )
+
+cellranger_data_path <- "/mnt/raid/10X_nsc_replicates/23-03-31_ischemia-10X-ISRE-reporter/01_run-cellranger"
+
+# Load data
+counts0 <- list(
+  R16 = Seurat::Read10X( file.path( cellranger_data_path, "/AS-956416-LR-68246/outs/filtered_feature_bc_matrix/" ) ), 
+  R18 = Seurat::Read10X( file.path( cellranger_data_path, "/AS-956418-LR-68246/outs/filtered_feature_bc_matrix/" ) ) ) 
+
+# Fix barcode suffixes
+colnames(counts0$R16$`Gene Expression`) <- str_replace( colnames(counts0$R16$`Gene Expression`), "-1", "-R16" )
+colnames(counts0$R18$`Gene Expression`) <- str_replace( colnames(counts0$R18$`Gene Expression`), "-1", "-R18" )
+
+# Combine the two runs
+counts <- cbind( counts0$R16$`Gene Expression`, counts0$R18$`Gene Expression` )
+
+# Delete raw data object (to free RAM)
+rm( counts0 )
+```
+(For brevity, we have used a Seurat function here. The code to do it without `Read10X` is in the previous
+notebook referenced above.)
+
+Here's the top-left corner of the count matrix
+
+```{r}
+counts[1:5,1:5]
+```
+Here's the dimension:
+
+```{r}
+dim( counts )
+```
+The rows are the features (genes), the columns are the cells.
+
+Most of the entyries of this sparse matrix are zero:
+
+```{r}
+nnzero(counts) / ( nrow(counts) * ncol(counts) )
+```
+
+Only 8.8% are not zero.
+
+### Cell totals
+
+We first calculate for each cell the sum of all UMI counts
+
+```{r}
+suppressPackageStartupMessages(
+  library( Matrix ) )
+
+totals <- colSums( counts )
+```
+
+Here is a histogram of these:
+
+```{r}
+hist( log10(totals), 100 )
+abline( v = log10(2000), col="darkgreen" )
+```
+As we can see, the cells have been filtered beforehand to only keep thos with at least a certain 
+total, namely 500:
+
+```{r}
+range( totals )
+```
+Probably the right peak in the histogram are real cells, the left peak (of which we only see its right "ankle")
+are droplets taht only contained ambient RNA (originating from cells that had broken up earlier). 
+
+The value 500 was chosen already in the CellRanger run; it seems to have been too low. We should better remove a few more
+columns, e.g. all with a total below, say, 2000 (indicated by the green line above).
+
+For now, we leave the cells in, however.
+
+
+### Log-Normalization
+
+We are interested in the fraction that each gene takes up of the total RNA complement
+of a cell. therefore, we divide the counst by the totals:
+
+```{r}
+fracs <- t( t(counts) / colSums(counts) )
+```
+
+The double transpose is required because R's "recycling rule" would otherwise broadcast
+the division across rows rather than columns.
+
+Now, the fractions should sum to 1 for each cell. Let's check
+
+```{r}
+colSums( fracs ) %>% head()
+```
+
+Most of the fractions are very small:
+
+```{r}
+hist( fracs@x, 1000, xlim=c(0,.01) )   # "@x" gets the non-zero entries only
+```
+For this and other reasons, one usually works on the logarithmic scale when dealing with gene
+expression data. However, as $\log(0)=\infty$, and we have many zeroes, we need to fudge the
+data a bit before taking the log. We do so by adding a pseudocount of 1, so that a 0 turns into
+1 and then under the log back to 0. As this "+1" should have a noticeable effect only on the smallest
+fractions, we multiply the fractions with a large number, typically 10,000:
+
+```{r}
+lfracs <- log1p( fracs * 1e4 )
+```
+
+The function `log1p(x)` does the same as `log(1+x)`, but preserves sparsity.
+
+**In Seurat**, the transformation from counts to "lfracs" is done by the function "NormalizeData",
+here with "normalization.method" set to "LogNormalize" and "scale.factor" set to 1e4.
+
+
+Here's the histogram of these log fractions:
+
+```{r}
+hist( lfracs@x, 1000 )
+```
+
+To understand the axis, let's undo our transformation. Writing $y$ for the transformed data and $k/s$ for
+the fractions (counts $k$ divided by totals $s$), we have used $y=\log(k/s \cdot 10^4 + 1 )$ and
+invert this to $k/s=10^{-4}(e^y-1)$:
+
+```{r}
+tibble( lfrac = 0:8 ) %>% mutate( frac = ( exp(lfrac) - 1 ) * 1e-4 )
+```
+Here's the histogram again, now a bit zoomed in, and with the axis labelled in fractions.
+
+```{r}
+hist( lfracs@x, 300, xaxt="n", xlim = c( 0, 5 ) )
+axis( 1, log1p(ticks*1e4), ticks )
+```
+
+```{r}
+hist( lfracs@x, 1000 )
+```
+
+### Highly variable genes
+
+In the next step, we will calculate a PCA. As the calculation time for this
+scale quadratically with the number of genes, we want to use only those
+genes that actually show appreciable differences from cell to cell.
+
+To this end, we first calculate, for each gene, the means and variances of
+the fractions across all cells:
+
+```{r}
+gene_frac_means <- rowMeans( fracs )
+gene_frac_vars <- sparseMatrixStats::rowVars( fracs )
+```
+
+Here's a scatter plot:
+
+```{r}
+plot( gene_frac_means, gene_frac_vars / gene_frac_means, pch=".", log="xy" )
+abline( h = mean( 1/totals), col="darkblue" )
+```
+
+Note how the majority of genes lie on a line, given by the mean of the 
+reciprocal totals. These are all those genes were the biological variation
+of the gene's expression from cell to cell is small compared to the Poisson
+noise.
+
+#### Mathematical detour
+
+To understand this, we make a mathematical detour:
+
+Let's assume that a the expected expression fraction for some gene is
+some value $q$ that is the same in all cells (because the biological
+variation of this gene is small). Now, we have $n$ cells, indexed
+by $j=1,2,\dots,n$ with totals (column sums) given by $s_j$, so that
+the expected number of reads for the gene is $\operatorname(K_j)\sim s_jq$.
+As discussed earlier, this allows us to model the counts as Poisson
+distributed: $K_j\sim \operatorname{Pois}(s_jq)$.
+
+Now, we postulate the following lemma:
+
+Given $n$ random variable, all indipendently distributed according
+to $K_j\sim \operatorname{Pois}(s_jq)$ (with some constant $q$ and $n$ constants
+$s_j$), then 
+$$\operatorname{E}\left(\operatorname{Var}_j\left(\frac{K_j}{s_j}\right)\right) = 
+\frac{1}{n}\sum_{j=1}^n \frac{1}{s_j}.$$
+
+The proof is straightforward but a bit tedious. Therefore, I leave it as an 
+exercise to the reader.
+
+#### End of Detour
+
+The genes with a variance:mean ratio close to the blue line are dominated by
+Poisson noise and therefore unlikely to give useful information about 
+differences between cells. Therefore, we select those well above the line.
+
+We select the 1000 genes with the highest variance:mean ratio:
+
+```{r}
+sort( gene_frac_vars / gene_frac_means, decreasing=TRUE ) %>% head( 1000 ) %>% names() -> hvg
+
+head( hvg, 10 )
+```
+Here are the genes in the plot:
+
+```{r}
+plot( gene_frac_means, gene_frac_vars / gene_frac_means, pch=".", log="xy",
+   col = ifelse( names(gene_frac_means) %in% hvg, "red", "black" ))
+abline( h = mean( 1/totals), col="darkblue" )
+```
+**In Seurat**, this is done by the the function "FindVariableFeatures". This function does
+a slightly more complicated approach. This, however, hardly makes a difference, because
+the PCA should be not very sensitive on the precise choice of genes, anyway.
+
+
+### Perform PCA
+
+Now, we calculate the first 30 principal components (PCs) of the lfracs matrix. For large 
+matrices, one cannot use the base-R function `prcomp` as it attempts to calculate
+all PCs. There are, however, several algorithms to only calculate the first few PCs, for example
+the "augmented implicitly restarted Lanczos bidiagonalization algorithm" of Baglama and
+Reichel, a type of [Lanczos algorithm](https://en.wikipedia.org/wiki/Lanczos_algorithm). It 
+is available in the "irlba" package. Let's get the first 30 components:
+
+```{r}
+pca <- irlba::prcomp_irlba( t(lfracs[ hvg, ]), n=30, scale.=TRUE )
+
+rownames(pca$x) <- colnames(lfracs)   # cells
+rownames(pca$rotation) <- hvg         # genes
+
+str(pca)
+```
+
+Note the transpose, which is needed because we have to switch from bioinformatics convention 
+(objects/cells in columns, features/genes in rows of the matrix) to statistics
+convention (the other way round).
+
+We have also fixed the rownames of score and rotation matrix because the PCA function loses them.
+
+**In Seurat**, this is done by the functions ScaleData and RunPCA.
+
+Here is a scatter plot of the first two PCs:
+
+```{r}
+plot( pca$x[,1], pca$x[,2], pch=".", asp=1 )
+```
+
+We can already clearly see that the cells from several sub-populations.
+
+### Distances
+
+We can use the PC scores to judge how similar to cells are, namely by looking
+at the Euclidean distance of their score vectors.
+
+Let's pick a random cell:
+
+```{r}
+cell <- 1327
+```
+
+Calculate the Euclidean distance in PCA space to some other cell:
+
+```{r}
+sqrt( sum( pca$x[cell, ] - pca$x[1388,] )^2 ) 
+```
+Calculate the distance of cell r`cell` to all other cells:
+
+```{r}
+dists <- sqrt( rowSums( pca$x[cell, ] - pca$x )^2 ) 
+```
+
+Check that the distance of the cell to itself is zero:
+
+```{r}
+dists[cell]
+```
+
+Yes, 1e-16 is just a rounding error away from 0.
+
+A histogram of all the distance of teh selected cell to all other cells:
+
+```{r}
+hist( dists, 1000, xlim=c(0,80) )
+```
+Clearly, the other cells can be put into groups: Those very similar to the selected cell, with distance below 10,
+those somewhat similar (distance 10 to 30) and those very different (over 30).
+
+This shows that PCA space is suitable to group all the cells into clusters of similar cells.
+
+### Nearest neighbors
+
+By sorting the distances, we can find the selected cell's 20 nearest neighbors:
+
+```{r}
+sort( dists )[1:20]
+```
+Here's the corrosponding cell indices:
+
+```{r}
+order( dists )[1:20]
+```
+
+Doing this for all cells takes to long. The "Fast Nearest neighbors" (FNN) package 
+offers implementation of several fast algorithms for this purpose:
+
+```{r}
+nn <- FNN::get.knn( pca$x, k=30 )
+
+str(nn)
+```
+
+
+The first matrix gives the indices. For our cell:
+
+```{r}
+nn$nn.index[ cell, ]
+```
+Compare this with the output of `order` above.
+
+Here are the corresponding distances:
+
+```{r}
+nn$nn.dist[ cell, ]
+```
+
+Here, the FNN package has used its default, the [k-d tree algorithm](https://en.wikipedia.org/wiki/K-d_tree). 
+For large matrices, exact nearest neighbor search becomes slow, and one often uses approximate
+nearest naighbor (ANN) search instead. 
+
+**Seurat**'s "FindNeighbors" fucntion uses the ["Annoy" package](https://github.com/spotify/annoy) for ANN search, which
+was developed by Spotify.
+
+
+### UMAP
+
+Our plot of the first two PCs gave us an impression about cell-cell similarity but did
+not make full use of all the available PC scores.
+
+So-called dimension-reduction methods aim to display the cells as points in a two-dimensional
+plot such that the distance between the 2D points is as close as possible to the "real"
+distance (here: the distance in PCA space).
+
+Two popular methods are t-distributed stochastic neighborhood embedding (t-SNE) and
+"uniform manifold approximation and projection" (UMAP).
+
+Let's try the latter. it is availabe via the "uwot" package:
+
+```{r}
+names(nn) <- c( "idx", "dist" )
+
+ump <- uwot::umap( pca$x, nn_method=nn )
+```
+
+Usually, UMAP searches, as a first step, the nearest neighbor, and the "nn_method"
+parameters allwos to chose whether it should use FNN or Annoy. As we have already run
+FNN, we instead hand UMAP the result, which is also possible. However, we needed
+slighly change the matrix names.
+
+**In Seurat**, this is done by the fucntion "RunUMAP".
+
+UMAP returns a 2D coordinate for each cell:
+```{r}
+head(ump)
+```
+Let's plot this:
+
+```{r}
+plot( ump, pch=".", asp=1, col = adjustcolor( "black", alpha=.1 ) )
+```
+Now, we can clearly distinguish several clusters, as well as cells in transitionary states
+between these.
+
+### A belated filtering
+
+What happened to teh non-cells with totals below 2000 that we did not filter yet 
+in the beginning? Let's colour the cells in the UMAP by UMI sum:
+
+```{r}
+as_tibble( ump ) %>%
+mutate( total=totals ) %>%
+ggplot + 
+  geom_point( aes( x=V1, y=V2, col=totals ), size=.1, alpha=.1 ) +
+  scale_color_viridis_c( trans="log10" ) + coord_equal()
+```
+All the small non-cells sit in the middle. They are similar to each other, because
+we don't have enough data to distinguish them and also because they might really
+all just be droplets filled with ambient RNA.
+
+Let's remove them:
+
+```{r}
+counts <- counts[ , totals >= 2000 ]
+```
+
+Now rerun the whole analysis:
+
+```{r}
+# normalization
+totals <- colSums(fracs)
+fracs <- t( t(counts) / colSums(counts) )
+lfracs <- log1p( fracs * 1e4 )
+
+# highly-variable genes
+gene_frac_means <- rowMeans( fracs )
+gene_frac_vars <- sparseMatrixStats::rowVars( fracs )
+sort( gene_frac_vars / gene_frac_means, decreasing=TRUE ) %>% head( 1000 ) %>% names() -> hvg
+
+# PCA
+pca <- irlba::prcomp_irlba( t(lfracs[ hvg, ]), n=30, scale.=TRUE )
+rownames(pca$x) <- colnames(lfracs)
+rownames(pca$rotation) <- hvg      
+
+# Nearest neighbors
+nn <- FNN::get.knn( pca$x, k=30 )
+names(nn) <- c( "idx", "dist" )
+
+# UMAP
+ump <- uwot::umap( pca$x, nn_method=nn )
+
+
+```

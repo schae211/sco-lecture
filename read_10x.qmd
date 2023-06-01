@@ -1,0 +1,407 @@
+---
+author: Simon Anders
+format: html
+toc: true
+keep-md: true   
+---    
+
+## Applied Mathematics in Biology: Single Cell Omics
+
+Lecture Notes, Part 2 
+
+Simon Anders, Univ. Heidelberg, 2023-05
+
+## Reading in 10X data
+
+This document collects the R code we developed in the lecture. We perform a standard single-cell analysis,
+but without using a package specific for the task like Seurat. Rather, we use general-use packages to be able
+to see what is going on. We will go a number of "detours" to investigate the workings of the functions we use.
+
+### The example data
+
+We use data from the Martin-Villalba group at DKFZ, who study adult neurogenesis, using the subventricular zone
+(SVZ) in the mouse brain as a model. In this zone, specialized astrocytes can act as neural stem cell (NSCs),
+giving rise to neuroblasts and oligodendrocyte precurser cells (OPCs). Normally, this is mainly used
+to replenish the interneurons in the olfactory bulb; and astrocytes elsewhere do not seem to participate in this cell production. After an injury to the brain, however, neurogenesis is seen not only in the SVZ but also in the 
+neighboring striatum. Presumably, the injury causes activation more astrocytes to activate dormant capabilities
+to act as stem cells, perhaps after being stimulated to do so by interferon.
+
+This study uses mice with a transgene encoding green flourescent protein (GFP), driven by an interferon-stimulated
+response element (ISRE) as promotor, i.e., a cell that sense infereron produces GFP and thus shows green flourescence.
+
+The experiment was performed with 6 mice, 4 of which were caused to suffer brain injury (ischemia) by a
+tempoary clamping of the carotids. 48 hours later, all mice were killed and from each mice, the striatum and the
+SVZ were dissected, and the tissue dissociated to obtain individual cells in liquid.
+
+Each of the 12 samples (6 mice times 2 regions) was labelled with a cell hash-tag. A "cell hash-tag" is an antibody, conjugated to a polyadenylated RNA oligomer. All the hash tags have the same antibody, which binds 
+against some surface feature ubiquitious to all or most cells, so that they
+(hopefully) stick to any cell. Hash tags differ, however, in the sequence of the conjugated oligo. For each
+sample, hash tags with one sequence are used. Later, after the cells from all samples have been pooled (mixed) and
+processed together in the 10X device, one can find the hash-tag oligo (HTO) sequences among the mRNA sequences of
+the cells and so reconstruct which cell was from which sample. The use of HTOs is also refered to as "multiplexing
+capture".
+
+The hash-tagged cells from all samples were mixed ("pooled") and then treated with an antibody against 
+the protein GLAST, which is found on the surface of astrocytes, including
+neural stem cells, and their early progeny, and can hence be used to distinguish these cells from other cells in the brain. 
+Fluorescence-activated cell sorting (FACS) was used to select only those cells that were coated with the antibody (which was
+conjugated to a fluorophore). 
+
+These FACS+ cells were then further FACS-sorted according to the flourescence signal from the GFP protein
+that was used as ISRE reporter (see above). Thus, two pools were obtained, with the GFP-negative (GN) and the
+GFP-positive (GP) cells. The two pools were given into two different channels in the 10X chip for droplet 
+microfluidics and the obtained libraries (i.e., cDNA preparations) were then sequenced in two sequencing runs. 
+
+The obtained sequencing reads were then processed with the "CellRanger" pipeline, a software provided by 10X,
+which first aligns the reads to the genome, extracts the cell barcodes and UMIs and then constructs a "count
+matrix", i.e. a matrix with one row for each of feature and one column for each barcode.
+
+"Feature" here refers to either a gene that was listed in the genome annotation provided by the user to CellRanger,
+or a hash-tag oligo (HTO). Barcode is the "cell barcode" that is unique to each bead and hence identifies
+a droplet (that hopefully contained a cell).
+
+The data, as produced by CellRanger, can be downloaded here: [TODO: Insert link.]
+
+
+### Reading in the data with Seurat
+
+We can use Seurat's "10X "Read10X" function to read in the data. As the data is split into two subdirectories (for
+the two 10X chips run), we call the function twice:
+
+```{r}
+cellranger_data_path <- "/mnt/raid/10X_nsc_replicates/23-03-31_ischemia-10X-ISRE-reporter/01_run-cellranger/"
+
+counts0 <- list(
+  R16 = Seurat::Read10X( file.path( cellranger_data_path, "/AS-956416-LR-68246/outs/filtered_feature_bc_matrix/" ) ), 
+  R18 = Seurat::Read10X( file.path( cellranger_data_path, "/AS-956418-LR-68246/outs/filtered_feature_bc_matrix/" ) ) ) 
+```
+
+For each run, we get two matrices, called "Gene Expression" and "Multiplexing Capture". Here for the first run:
+
+```{r}
+names( counts0$R16 )
+```
+```{r}
+options( max.print=1000 )
+
+counts0$R16$`Gene Expression` 
+```
+
+Here, we "gene expression" matrix contains 32,286 rows for the 32,286 genes that were listed in the gene annotation file
+provided to CellRanger, and 11079 columns for 11,079 bead barcodes. These are only the bead barcode from droplets
+that contained enough UMIs to likely belong to a cell, as we loaded the "filtered" matrix. (The "raw" matrix had
+much more columns, namely 733,940.) This is a sparse matrix: most of its elements are 0 (indicated as dots).
+
+The other matrix is here:
+
+```{r}
+counts0$R16$`Multiplexing Capture`
+```
+
+The "multiplexing capture" matrix has the same number of columns (cells), but only 12 rows. These correspond to the 12 hash-tag oligos (HTOs) that were added to the 12 samples, before they were pooled and put together into the 10X device.
+
+### Detour: Exploring the raw data and loading them manually
+
+We wanted to avoid using Seurat, so let's have a look at the output of the 
+CellRanger run and see how to import it manually into R.
+
+We first explore the directories. Not the next few chunks are run in bash, not in R:
+
+```{bash}
+cd /mnt/raid/10X_nsc_replicates/23-03-31_ischemia-10X-ISRE-reporter/01_run-cellranger
+ls -l
+```
+The two directories, AS-956416-LR-68246 and AS-956416-LR-68246, refer to the two sequencing runs. We will call them "R16" and "R18", for short. Ther results of the two CellRanger runs are in the "outs" subdirectory. 
+
+```{bash}
+cd /mnt/raid/10X_nsc_replicates/23-03-31_ischemia-10X-ISRE-reporter/01_run-cellranger
+  # We have to repeat this "cd" every time because RStudio notbooks don't keep the working
+  # directory between shell chunks.
+
+cd AS-956416-LR-68246/outs
+ls -l
+```
+
+Here, we have some interesting quality control and summary files. have a look at the web summary. 
+Also, we have a subdirectory "raw_feature_bc_matrix" with the full count matrix, a matrix with one row
+for each "feature" (i.e., gene or HTO; see below for the latter) and one column for each 10X cell barcode. This also
+includes very many columns for barcodes from "empty droplets", i.e., droplets that contained so few RNA that they most likely did not contain a cell but only "ambient" RNA from cells that had broken up earlier. The other subdirectory, "filtered_feature_bc_matrix" contains only columns with a count fo at least (as we will see below) 500 UMIs.
+
+Here is the content of that directory:
+
+```{bash}
+cd /mnt/raid/10X_nsc_replicates/23-03-31_ischemia-10X-ISRE-reporter/01_run-cellranger
+
+cd AS-956416-LR-68246/outs/filtered_feature_bc_matrix
+ls -l
+```
+Here, we have three files. The first contains the cell barcodes (CBs). Each row in this file
+corresponds to a matrix column:
+
+```{bash}
+cd /mnt/raid/10X_nsc_replicates/23-03-31_ischemia-10X-ISRE-reporter/01_run-cellranger
+cd AS-956416-LR-68246/outs/filtered_feature_bc_matrix
+
+zcat barcodes.tsv.gz | head
+echo "..."
+zcat barcodes.tsv.gz | tail
+```
+The content is simply the barcode of the bead, with a constant suffix `-1` added.
+
+Now the feature list. It contains one row for each *row* of the matrix
+
+```{bash}
+cd /mnt/raid/10X_nsc_replicates/23-03-31_ischemia-10X-ISRE-reporter/01_run-cellranger
+cd AS-956416-LR-68246/outs/filtered_feature_bc_matrix
+
+zcat features.tsv.gz | head
+echo "..."
+zcat features.tsv.gz | tail
+```
+This file contains three columns: feature ID, feature name, and feature type. There are two feature types: "gene expression" and "multiplexing capture". The former is just genes, and we get back to the latter.
+
+Finally, the last file contains the actual matrix:
+
+```{bash}
+cd /mnt/raid/10X_nsc_replicates/23-03-31_ischemia-10X-ISRE-reporter/01_run-cellranger
+cd AS-956416-LR-68246/outs/filtered_feature_bc_matrix
+
+zcat matrix.mtx.gz | head
+echo "..."
+zcat matrix.mtx.gz | tail
+```
+This, so-called matrix market format, should be read as follows: Ignore the comment files
+starting with `%`. Then, the first real line contains the matrix dimension in three numbers: 
+number of rows ("nrows"), number of columns ("cols"), number of non-zero elements ("nnz"). The
+remaining lines are the actual data. For example, the line "13 1 6" means: The matrix element
+at row 13, column 1, contains the value 6.
+
+Let's read in this data into R:
+
+```{r}
+mtx_R16_filepath <- file.path( cellranger_data_path, "AS-956416-LR-68246/outs/filtered_feature_bc_matrix" ) 
+
+mtx_R16 <- 
+   read.delim( 
+      gzfile( file.path( mtx_R16_filepath, "matrix.mtx.gz" ) ), 
+      sep=" ", comment.char="%", header=FALSE, col.names = c( "row", "col", "value" ) )
+
+head( mtx_R16 )
+```
+
+Now, we turn this table into a sparse matrix:
+
+```{r}
+suppressPackageStartupMessages( library( Matrix ) )
+
+counts_R16 <- 
+  sparseMatrix(
+    dims = c( mtx_R16$row[1], mtx_R16$col[1] ),
+    i = mtx_R16$row[-1],
+    j = mtx_R16$col[-1],
+    x = mtx_R16$value[-1]
+  )
+```
+
+We add row and column names, taken from the other two files. First the column names
+
+```{r}
+colnames(counts_R16) <- readLines( gzfile( file.path( mtx_R16_filepath, "barcodes.tsv.gz" ) ) ) 
+```
+
+Now a look at the other file:
+
+```{r}
+feature_table <- 
+  read.table( gzfile( file.path( mtx_R16_filepath, "features.tsv.gz" ) ), 
+     sep="\t", col.names = c( "id", "symbol", "type" )  )
+
+head( feature_table )
+```
+
+We use the IDs as rownames
+
+```{r}
+rownames(counts_R16) <- feature_table$symbol
+```
+
+Now, we can compare with what Seurat's Read10X function did in the beginning, by
+subtracting the two expression matrices:
+
+```{r}
+range( counts0$R16$`Gene Expression` - counts_R16[ feature_table$type=="Gene Expression", ] )
+```
+The matrices are identical.
+
+The barcodes are also the same
+```{r}
+identical(
+  colnames(counts0$R16$`Gene Expression`),
+  colnames(counts_R16[ feature_table$type=="Gene Expression", ] ) )
+```
+
+There are, however, differences in the row names:
+
+```{r}
+suppressPackageStartupMessages( library(tidyverse) )
+
+tibble(
+  rownames_Seurat = rownames(counts0$R16$`Gene Expression`),
+  rownames_ours   = rownames(counts_R16[ feature_table$type=="Gene Expression", ] ) )  %>%
+filter( rownames_Seurat != rownames_ours ) 
+```
+This is caused by duplicated gene symbols, where Seurat has added a ".1" for the second occurances,
+maybe using the R function `make.names`.
+
+```{r}
+feature_table %>%
+mutate( row_number = row_number() ) %>%
+filter( symbol == "Ptp4a1" )
+```
+**End of Detour**
+
+### The hash tags
+
+Next, we should look at the hash-tags that were added to be able to tell which cell
+is from which sample.
+
+Here is the sample table that the experimentator has provided to CellRanger for run R16. It contains, for each 
+of the 12 pooled sample, the HTO sequence:
+
+```{r}
+read.csv( file.path( cellranger_data_path, "AS-956416-LR-68246_reference.csv" ) )
+```
+
+Cell ranger has already replaced the sequence with the sample IDs according to this column. Hence, we find the
+HTO matrix rows annotated with sample names:
+
+```{r}
+counts0$R16$`Multiplexing Capture`
+```
+
+Ideally, each cell should have only on type of HTOs. However, if not all antibodies have attached
+to cells before pooling, teh remaining antobodies will stick to random cells from possibly another sample.
+
+Let's see how well we can assign cells to samples.
+
+This is how we get for each cell, from which sample the largest part of the HTOs comes:
+
+```{r}
+apply( counts0$R16$`Multiplexing Capture`, 2, which.max ) %>% head()
+```
+This is how we get the corresponding count
+```{r}
+apply( counts0$R16$`Multiplexing Capture`, 2, max ) %>% head()
+```
+By dividing by the total HTO count per cell, we get fractions:
+```{r}
+( apply( counts0$R16$`Multiplexing Capture`, 2, max ) / 
+     apply( counts0$R16$`Multiplexing Capture`, 2, sum ) ) %>% head()
+```
+We put this together:
+
+```{r}
+tibble(
+  cell = colnames( counts0$R16$`Multiplexing Capture` ),
+  total = apply( counts0$R16$`Multiplexing Capture`, 2, sum ),
+  max = apply( counts0$R16$`Multiplexing Capture`, 2, max ),
+  which.max = apply( counts0$R16$`Multiplexing Capture`, 2, which.max )
+) %>%
+left_join( by = c( "which.max" = "sample_idx" ),
+  tibble( sample = rownames( counts0$R16$`Multiplexing Capture` ) ) %>%
+    mutate( sample_idx = row_number() )
+) -> cells_R16_hto_stats
+
+cells_R16_hto_stats
+```
+
+We plot this
+```{r}
+cells_R16_hto_stats %>%
+ggplot +
+  geom_point( aes( x=total, y=max/total, col=sample ), size=.3 ) +
+  scale_x_log10() 
+```
+As we can see, the sample tagging with HTOs has not worked well: for most cells, the strongest HTO should
+have close top 100% (or at least, much more than 50%) of the counts, but this is not the case. We
+might come back to this issue later.
+
+### Sample table
+
+The sample names obviously contain information about the differences between the samples. Here,
+we split the names into the parts and give each part a name:
+
+```{r}
+suppressPackageStartupMessages( library(tidyverse) )
+
+tibble( sample_name = rownames(counts0$R16$`Multiplexing Capture`) ) %>%
+separate( sample_name, remove=FALSE, sep="_",
+    into = c( "genotype", "time", "facs_result", "region", "age", "treatment", "mouse", "hashtag" ) )
+```
+
+We can put this together with the other run.
+
+
+```{r}
+suppressPackageStartupMessages( library(tidyverse) )
+
+map_dfr( c( "R16", "R18" ), function(run) {
+  tibble( sample_name = rownames(counts0[[run]]$`Multiplexing Capture`), run=run ) %>%
+  separate( sample_name, remove=FALSE, sep="_",
+    into = c( "genotype", "time", "facs_result", "region", "age", "treatment", "mouse", "hashtag" ) ) } ) ->
+  sample_table
+
+sample_table
+```
+For later reference, here's the meaning of the columns:
+
+- genotype: The genetic modification to the mouse line, here, the introduction of a green fluorescent protein (GFP)
+  gene after an interferon-stimulated response element (ISRE) promoter (i.e., the cells show green fluorescence when   
+  stimulated with interferon). All samples have the genotype "ISRE".
+- time: The time that has passed between treatment and sacrifice of the mice. Always 48 h.
+- facs_result: The read-out of the FACS for GFP. GFP-positive (GP) means that flourescence was below the chosen
+  threshold ("gate") and the cell is hence considered as having sensed interferon, and GFP-negative (GN) means that the 
+  signal was below the threshold.
+- region: whether the cells was from the SVZ or the striatum
+- age: the age of the mouse
+- treatment: whether the mouse's carotids were transiently clamped (ischemia, isch) or not (treatment-naive)
+- mouse: The number of the mouse. Each mice appears in 4 rows.
+- hashtag: The ID of the hashtag used. (10X's hashtag kit contains 24 (?) numbered hash-tags, each with a different sequences.) Note the type for HTO2.
+- run: The sequencing run: R16 for GN, R18 for GP.
+
+We fix the typo for HTO2:
+
+```{r}
+sample_table$hashtag[c(2,14)] <- "HTO2"
+
+sample_table
+```
+
+### Combining the gene count matrices
+
+Let's generate one big count matrix out of the "gene expression" matrices from the two runs.
+As the same barcode might appear in both matrices, we make the "-1" suffixes distinct.
+
+```{r}
+colnames(counts0$R16$`Gene Expression`) <- str_replace( colnames(counts0$R16$`Gene Expression`), "-1", "-R16" )
+colnames(counts0$R18$`Gene Expression`) <- str_replace( colnames(counts0$R18$`Gene Expression`), "-1", "-R18" )
+colnames(counts0$R16$`Multiplexing Capture`) <- str_replace( colnames(counts0$R16$`Multiplexing Capture`), "-1", "-R16" )
+colnames(counts0$R18$`Multiplexing Capture`) <- str_replace( colnames(counts0$R18$`Multiplexing Capture`), "-1", "-R18" )
+```
+
+Now, we combine the matrices
+
+```{r}
+counts <- cbind( 
+  counts0$R16$`Gene Expression`,
+  counts0$R18$`Gene Expression` )
+
+dim(counts)
+```
+And a look at the corner:
+
+```{r}
+counts[ 1:5, 1:5 ]
+```
+
+This count matrix will be our starting point for the next steps.
