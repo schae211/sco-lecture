@@ -62,9 +62,12 @@ dim( counts )
 ```
 The rows are the features (genes), the columns are the cells.
 
-Most of the entyries of this sparse matrix are zero:
+Most of the entries of this sparse matrix are zero:
 
 ```{r}
+suppressPackageStartupMessages(
+  library( Matrix ) )
+
 nnzero(counts) / ( nrow(counts) * ncol(counts) )
 ```
 
@@ -75,9 +78,6 @@ Only 8.8% are not zero.
 We first calculate for each cell the sum of all UMI counts
 
 ```{r}
-suppressPackageStartupMessages(
-  library( Matrix ) )
-
 totals <- colSums( counts )
 ```
 
@@ -157,6 +157,7 @@ tibble( lfrac = 0:8 ) %>% mutate( frac = ( exp(lfrac) - 1 ) * 1e-4 )
 Here's the histogram again, now a bit zoomed in, and with the axis labelled in fractions.
 
 ```{r}
+ticks <- c( 0, 10^(-4:1), 3 * 10^(-4:1) )
 hist( lfracs@x, 300, xaxt="n", xlim = c( 0, 5 ) )
 axis( 1, log1p(ticks*1e4), ticks )
 ```
@@ -263,7 +264,8 @@ convention (the other way round).
 
 We have also fixed the rownames of score and rotation matrix because the PCA function loses them.
 
-**In Seurat**, this is done by the functions ScaleData and RunPCA.
+**In Seurat**, this is done by the functions ScaleData and RunPCA. By default, Seurat 
+takes 20 PCs. I like to take a few more.
 
 Here is a scatter plot of the first two PCs:
 
@@ -320,7 +322,7 @@ By sorting the distances, we can find the selected cell's 20 nearest neighbors:
 ```{r}
 sort( dists )[1:20]
 ```
-Here's the corrosponding cell indices:
+Here's the corresponding cell indices:
 
 ```{r}
 order( dists )[1:20]
@@ -422,8 +424,8 @@ Now rerun the whole analysis:
 
 ```{r}
 # normalization
-totals <- colSums(fracs)
-fracs <- t( t(counts) / colSums(counts) )
+totals <- colSums(counts)
+fracs <- t( t(counts) / totals )
 lfracs <- log1p( fracs * 1e4 )
 
 # highly-variable genes
@@ -442,6 +444,74 @@ names(nn) <- c( "idx", "dist" )
 
 # UMAP
 ump <- uwot::umap( pca$x, nn_method=nn )
-
-
 ```
+
+And the new UMAP: (Note that change in colour scale.)
+
+```{r}
+as_tibble( ump ) %>%
+mutate( total=totals ) %>%
+ggplot + 
+  geom_point( aes( x=V1, y=V2, col=totals ), size=.1, alpha=.1 ) +
+  scale_color_viridis_c( trans="log10" ) + coord_equal()
+```
+
+### Sleepwalk
+
+Our sleepwalk package allows to explore interactively how well the UMAP represents
+the cell similarities according to PCA. The "sleepwalk" function is called with the UMAP
+and the PCA coordinates, as follows
+
+```{r eval=FALSE}
+sleepwalk::sleepwalk( ump, pca$x )
+```
+If you run this in an interactive R session, a window or tab of your web browser
+will open that shows the UMAP plot. If you move your mouse over a cell, all the cells
+will be colored according to their fistance to this cell in PCA space.
+
+For the purpose of this notebook, we use this version
+
+```{r eval=FALSE}
+sleepwalk::sleepwalk( ump, pca$x, saveToFile="ump_sleepwalk_0.html" )
+```
+so that an interactive HTML page is created which you can see here: [ump_sleepwalk_0.html](ump_sleepwalk_0.html).
+
+If you use this page, you can notice that two large chunks that seem disconnected in 
+the UMAP actually should be connected.
+
+### A better UMAP
+
+To fix this issue, we rerun UMAP with an additional option:
+
+```{r}
+ump <- uwot::umap( pca$x, min_dist=.25 )
+```
+
+This increases the distance between individual points (the default min_dist is 0.01),
+thus spreads out the cluster and makes them more likely to meet.
+
+```{r}
+plot( ump, pch=".", asp=1, col=adjustcolor("black",alpha=.1) )
+```
+Now the data looks more connected and fits better to the Sleepwalk view:
+
+```{r}
+sleepwalk::sleepwalk( ump, pca$x, saveToFile = "ump_sleepwalk.html" )
+```
+This Sleepwalk page is [here](ump_sleepwalk.html).
+
+More information on min_dist and the other hyperparameters of UMAP can be found, e.g.,
+in [this page](https://umap-learn.readthedocs.io/en/latest/parameters.html) of the UMAP manual.
+
+
+### Saving the data for the next steps
+
+Next, we want to identify groups ("clusters") of similar cells. This will be
+content for the next notebook. To be able to have a running start there, we
+save all the results so far in an R data file.
+
+```{r}
+save( counts, totals, lfracs, pca, nn, ump, file="isre_data.rda" )
+```
+
+This file can be found here; [isre_data.rda](isre_data.rda)
