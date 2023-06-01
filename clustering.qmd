@@ -1,0 +1,216 @@
+---
+author: Simon Anders
+format: html
+toc: true
+keep-md: true   
+---    
+  
+## Applied Mathematics in Biology: Single Cell Omics
+  
+Lecture Notes, Part 4
+
+Simon Anders, Univ. Heidelberg, 2023-06
+
+## Clustering and cell-type assignment
+
+We start by loading the data from the previous chapter
+
+```{r}
+suppressPackageStartupMessages({
+  library( tidyverse )
+  library( Matrix ) })
+
+load( "isre_data.rda" )
+```
+
+### Generating a nearest neighbour graph
+
+The nearest neighbour data from FNN (see previous chapter) can be used to define
+a graph. A graph is a mathematical object comprising vertices which are connected
+by edges. Each cell is a vertex. If one cell is among another cell's nearest neighbours,
+we connect the vertices for the two cells with an edge.
+
+We make a table of all the edges, using the 20 nearest neighbours:
+
+```{r}
+edge_table <-
+  map_dfr( 2:20, function(i)
+    tibble( 
+      from = 1:nrow(nn$idx), 
+      to = nn$idx[,i] ) )
+
+head( edge_table )
+```
+
+We use this to construct a graph within the "igraph" package:
+
+```{r}
+nn_graph <- igraph::graph_from_edgelist( as.matrix(edge_table), directed=FALSE )
+```
+
+Even though we have only used the 20 nearest neighbors (19, excluding the cell itself),
+many cell vertices have a degree larger than 19 (i.e., have more than 19 edges). This is 
+because cells can be nearest neighbor of a cell that is not among its own enarest neighbors.
+This can be seen here:
+
+```{r}
+hist( igraph::degree( nn_graph ), 100 )
+```
+
+The Leiden algorithm assigns each cell to a community, such that the modularity score is 
+maximized. In graph theory, a community is a group of vertices that have very many more edges 
+between them. The modularity score quantifies to which
+extent an assignment of cells to communities causes the fraction of edges that are fully within a community 
+(as opposed to an edge crossing a community border) to exceed the expectation if the edges were randomly distributed
+two communities.
+
+We try this out:
+
+```{r}
+leiden <- igraph::cluster_leiden( nn_graph, objective_function="modularity" )
+
+str(leiden)
+```
+
+We use for each community a differnt colour in our UMAP. Note: In the single-cell field,
+these communities are commonly referred to as "clusters".
+
+```{r}
+as_tibble( ump ) %>%
+add_column( cluster = factor( leiden$membership) ) %>%
+ggplot +
+  geom_point( aes( x=V1, y=V2, col=cluster ), size=.1 ) +
+  coord_equal()
+```
+
+Here's a version with numbers inside the clusters:
+
+```{r}
+as_tibble( ump ) %>%
+add_column( cluster = factor( leiden$membership) ) -> tmp
+
+tmp %>%
+group_by( cluster ) %>%
+summarise_all( mean ) -> tmp2
+
+ggplot( tmp, aes( x=V1, y=V2 ) ) +
+  geom_point( aes( col=cluster ), size=.1 ) +
+  geom_text( aes( label=cluster ), data=tmp2 ) +
+  coord_equal()
+```
+We will come back later to the details of modularity score and Leiden
+algorithm.
+
+
+### Assigning cell types
+
+The four clusters to the left seem to separated from the rest. Let's explore 
+them, by taking means of the log-fractions for all genes across all cells either
+within this group or outside
+
+```{r}
+cluster_group <- c( 4, 15, 16, 18 )
+
+means_in_group <- rowMeans( lfracs[ , leiden$membership %in% cluster_group ] )
+means_outside <- rowMeans( lfracs[ , ! leiden$membership %in% cluster_group ] )
+
+plot( means_outside, means_in_group, pch=".", asp=1 )
+```
+
+Clearly, many genes are equal in both groups, but some are much higher in our group of interest.
+Let's find the names of those 20 genes with the highest difference:
+
+```{r}
+( means_in_group - means_outside ) %>%
+sort( decreasing=TRUE ) %>%
+head( 20 )
+```
+
+We spot Mbp, the gene coding for myelin basic protein, a component of the myelin sheeth,
+that oligodendrocytes produce and deposit around axons. We also see Plp1, another important
+component of myelin. So, are these oligodendrocytes?
+
+Let's colour the UMAP by expression stength of Mbp
+
+```{r}
+as_tibble( ump ) %>%
+add_column( expr = lfracs[ "Mbp", ] ) %>%
+ggplot +
+  geom_point( aes( x=V1, y=V2, col=expr ), size=.1 ) +
+  scale_color_viridis_c( direction=-1 ) +
+  coord_equal()
+```
+
+Yes, these four clusters are the oligodendrocytes.
+
+Our sample also should contain astrocytes, recognizable by expression of, e.g.,
+aquaporin 4 (Aqp4). Same code, but ow for this gene.
+
+```{r}
+as_tibble( ump ) %>%
+add_column( expr = lfracs[ "Aqp4", ] ) %>%
+ggplot +
+  geom_point( aes( x=V1, y=V2, col=expr ), size=.1 ) +
+  scale_color_viridis_c( direction=-1 ) +
+  coord_equal()
+```
+
+The astrocyes and neural stem cells are at the bottom of the big structure to the 
+right. Towards the top, we seem to see the stem cells' progeny: the transient
+amplifying cells and the neuroblasts. 
+
+### A heatmap
+
+As a more unbiased approach, we can also calculate the means for each cluster, 
+e.g. as follows:
+
+```{r}
+gene_means_by_cluster <- 
+  tapply( 1:ncol(lfracs), leiden$membership, 
+    function(x) rowMeans( lfracs[ , x, drop=FALSE ] ) )
+
+gene_means_by_cluster <- do.call( cbind, gene_means_by_cluster )
+
+gene_means_by_cluster[ 1:5, 1:5 ]
+```
+
+Take a moment to decode the way how `tapply` is used here.
+
+If you prefer tidyverse, you can also try to use pivoting instead.
+
+Now, let's find the variance of these means, as well as the mean over means:
+
+```{r}
+means_of_cluster_means <- rowMeans( gene_means_by_cluster )
+variances_of_cluster_means <- matrixStats::rowVars( gene_means_by_cluster, useNames=TRUE )
+
+plot( means_of_cluster_means, variances_of_cluster_means, pch="." )
+```
+
+Let's take the top 100 genes by variance and make a heatmap
+
+```{r fig.width=7,fig.height=14}
+sort( variances_of_cluster_means, decreasing=TRUE ) %>%
+head( 100 ) %>% names() -> top_cluster_genes
+
+pheatmap::pheatmap(
+  gene_means_by_cluster[ top_cluster_genes, ] )
+```
+
+The heatmap's hierarchical clustering of row and columns shows what we have already suspected earlier: Cluster 4, 15, 16, and
+18 form one group, with a large cluster of genes specific to these cell clusters. The remainder can be split into two 
+groups by cutting the dendrogram:  Clusters 3, 6, 9, 10, 11, 13, 14, 17, and 19 form one subtree, the rest another. 
+This middle cluster group seems to eb the astrocyte-like cells, the rest the later progeny.
+
+For a biologist with good knowledge of the expected cell types and their marker genes, such a heatmap can be quite helpful
+in understanding the data.
+
+### Homework
+
+Can you produce a plot as follows? Each of the Leiden clusters should be represented as
+a circle with a number inside, positioned within a 2D UMAP at the center of mass of
+the cluster (like the cluster numbers in the plot above). Make the area of the circle
+proportional to the number of cells in the circle. Then, connect the circles with
+straight lines, such that there is one line from every cluster to every other cluster, 
+and the width of this line should be proportional to the number of edges between the clusters
+in the NN graph.

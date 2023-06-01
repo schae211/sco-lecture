@@ -501,7 +501,8 @@ sleepwalk::sleepwalk( ump, pca$x, saveToFile = "ump_sleepwalk.html" )
 This Sleepwalk page is [here](ump_sleepwalk.html).
 
 More information on min_dist and the other hyperparameters of UMAP can be found, e.g.,
-in [this page](https://umap-learn.readthedocs.io/en/latest/parameters.html) of the UMAP manual.
+in [this page](https://umap-learn.readthedocs.io/en/latest/parameters.html) of the UMAP manual,
+or in [this page](https://pair-code.github.io/understanding-umap/).
 
 
 ### Saving the data for the next steps
