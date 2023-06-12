@@ -328,7 +328,7 @@ local_quadratic_regression_adaptive_smooth <- function( x0, x, y, hn ) {
 }
 
 plot( x, y )
-lines( xg, sapply( xg, local_regression_adaptive_smooth, x, y, hn=30 ), col="red" )
+lines( xg, sapply( xg, local_quadratic_regression_adaptive_smooth, x, y, hn=30 ), col="red" )
 lines( xg, true_function( xg ), col="blue" )
 ```
 
@@ -402,14 +402,14 @@ We use it to draw a smoothed plot:
 xg <- seq( 0, 1, length.out = 300 )
 
 plot( xg, sapply( xg, kernel_smooth_Poisson, x, k, s, h=.1 ), 
-  type="l", col="red", log="y" )
+  type="l", col="red", log="y", ylim=c(1e-4,1e-1) )
 
 lines( xg, true_fraction( xg ), col="blue" )
 
 ```
-#### Average of Poisson-distributed variables
+To understand the change in the last two equations, we need a short detour:
 
-##### Inverse-variance weighting
+#### Inverse-variance weighting
 
 Given $n$ independent random variables $X_i$ with variances $v_i=\operatorname{v_i}$, 
 we want to estimate the expectation 
@@ -427,9 +427,21 @@ In general, however, the weights might differ. Then, one should choose $\w_i\pro
 This is easily proven with Lagrange multipliers; the proof can be found on the Wikipedia page
 on [inverse-variance weighting](https://en.wikipedia.org/wiki/Inverse-variance_weighting).
 
-##### Application to Poisson variables
+#### Application to Poisson variables
 
-[...]
+Let us now assume that the random variables we want to average over are fractions
+derived from Poisson counts. We have cells, indexed by $i$, with counts for our gene
+of interest, given by $K_i\sim \operatorname{Pois}(s_i q)$, where $s_i$ is the
+"size", i.e., the total count sum for the cell. We wish to estimate the common
+expected fraction $q$ via teh weighted average
+$$ \hat q = \frac{\sum_iw_i\frac{K_i}{s_i}}{\sum_i w_i}. $$
+What weights $w_i$ should we use? Using $\operatorname{Var} K_i=s_i q$ together with
+the preceding result, we get
+$$ w_i \propto \frac{1}{\operatorname{Var}\frac{K_i}{s_i}}=\frac{1}{\frac{1}{s_i^2}\operatorname{Var}K_i}=\frac{1}{\frac{1}{s_i^2}s_iq}=\frac{s_i}{q} \propto s_i $$
+Hence:
+
+$$ \hat q = \frac{\sum_iw_i\frac{K_i}{s_i}}{\sum_i w_i} = \frac{\sum_i s_i\frac{K_i}{s_i}}{\sum_i s_i} = \frac{\sum_i K_i}{\sum_i s_i}. $$
+This justifies our switching from $\frac{1}{n}\sum_i(k_i/s_i)$ to $(\sum_i k_i)/(\sum_i s_i)$ in our smoothing function.
 
 ### Generalized linear models
 
@@ -533,10 +545,10 @@ Instead of a simple kernel smoother, let's to local regression again, but now
 with the `glm` function instead of the `lm` function:
 
 ```{r}
-local_regression_smooth_Poisson <- function( x0, x, k, s, h ) {
+local_quadratic_regression_smooth_Poisson <- function( x0, x, k, s, h ) {
   w <- tricube( ( x - x0 ) / h )
-  fit <- glm( k ~ x, weights=w, offset=log(s), family=poisson("log") )
-  unname( coef(fit)[1] + x0 * coef(fit)[2] )
+  fit <- glm( k ~ x + I(x^2), weights=w, offset=log(s), family=poisson("log") )
+  unname( coef(fit)[1] + x0 * coef(fit)[2] + x0^2 * coef(fit)[3] )
 }
 ```
 
@@ -546,7 +558,7 @@ look at the formula with $o_i$ above.
 Here is the result. Smoothed curve in red, noisy data in gray, original function in blue.
 
 ```{r}
-yhat <- sapply( xg, local_regression_smooth_Poisson, x, k, s, .1 )
+yhat <- sapply( xg, local_quadratic_regression_smooth_Poisson, x, k, s, .1 )
 
 plot( x, log( k/s + 1e-4 ), col="gray" )
 lines( xg, yhat, col="red" )
