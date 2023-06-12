@@ -123,6 +123,7 @@ plot(
   type="l", col="red", ylim=c( -.1, 1.5 ) )
 
 lines( xg, true_function( xg ), col="blue" )
+points( x, y )
 ```
 
 For comparison, we have added to the smoothing curve (red) the true function (blue),
@@ -160,6 +161,8 @@ accepts weights.
 
 ```{r}
 fit <- lm( y ~ x, weights=w )
+
+fit
 ```
 
 Here, `lm` has now maximized the weighted sum of squared residuals,
@@ -233,19 +236,15 @@ In R, all this, and more, is available via the `loess` function (part of base R)
 or the `locfit` package. Our implementation above is, of course, very simple and slow, so better
 use these functions.
 
-### Adaptive bandwidth
-
-[...]
-
 ### Bootstrapping
 
 Usually, we do not know the "true" fucntion. So, how can we judge how good it is?
 
-Bootstrapping offers a way:
+Bootstrapping offers a way.
+
+First for simple kernel smoothing:
 
 ```{r}
-xg <- seq( 0, 1, length.out = 300 )
-
 plot( x, y, xlim=c(0,1), ylim=c(-.2,1.6) )
 
 for( i in 1:100 ) {
@@ -255,6 +254,84 @@ for( i in 1:100 ) {
 
 lines( xg, true_function(xg), col="blue" )
 ```
+
+Now for local quadratic regression:
+
+```{r}
+plot( x, y, xlim=c(0,1), ylim=c(-.2,1.6) )
+
+for( i in 1:100 ) {
+  bss <- sample.int( length(x), replace=TRUE )
+  lines( xg, sapply( xg, local_quadratic_regression_smooth, x[bss], y[bss], h=.1 ), 
+     col = adjustcolor( "red", alpha=.1 ) ) }
+
+lines( xg, true_function(xg), col="blue" )
+```
+
+### Leave-one-out cross-validation
+
+Another possibility is to use LOO-CV:
+
+Calculate for each data point its y value, using the y values of its neighbours, but
+the point's own y value.
+
+```{r}
+yhat_loo <- sapply( 1:length(x), function(i)
+  kernel_smooth( x[i], x[-i], y[-i], h=.1 ) ) 
+
+plot( x, y )
+points( x, yhat_loo, col="red" )
+```
+
+Now we can calculate a mean squared error (MSE):
+
+```{r}
+mean( ( y - yhat_loo )^2 )  # Mean squared error
+```
+
+Is the MSE lower bith a more advanced smoother?
+
+```{r}
+yhat_loo <- sapply( 1:length(x), function(i)
+  local_quadratic_regression_smooth( x[i], x[-i], y[-i], h=.1 ) ) 
+
+mean( ( y - yhat_loo )^2 )
+```
+
+### Adaptive bandwidth
+
+What if the x values are not uniformly dstributed?
+
+```{r}
+set.seed( 13245768 )
+
+x <- sample( c( rbeta( n/2, 3, 7 ), rbeta( n/2, 9, 1 ) ) )
+y <- true_function( x ) + rnorm( n, sd=.1 )
+
+plot( x, y )
+lines( xg, sapply( xg, local_quadratic_regression_smooth, x, y, h=.1 ), col="red" )
+lines( xg, true_function( xg ), col="blue" )
+```
+
+The bandwidth is too larger where the points are dense and too narrow where they are sparse.
+
+Adaptive bandwidth: Always choose $h$ such that a fixed number of x values are within the
+kernel window.
+
+```{r}
+local_quadratic_regression_adaptive_smooth <- function( x0, x, y, hn ) {
+  ds <- sort( abs( x - x0 ) )
+  h <- ds[hn]
+  w <- tricube( ( x - x0 ) / h )
+  fit <- lm( y ~ x + I(x^2), weights=w )
+  coef(fit)[1] + x0 * coef(fit)[2] + x0^2 * coef(fit)[3]
+}
+
+plot( x, y )
+lines( xg, sapply( xg, local_regression_adaptive_smooth, x, y, hn=30 ), col="red" )
+lines( xg, true_function( xg ), col="blue" )
+```
+
 
 ### Example with Poisson noise
 
