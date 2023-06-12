@@ -1,0 +1,385 @@
+---
+format: html
+---
+
+## Applied Mathematics in Biology: Single Cell Omics
+
+Lecture Notes
+
+Simon Anders, Univ. Heidelberg, 2023-06
+
+## Pseudotime
+
+### Today's example data
+
+This time, we use a slightly different data set, from another experiment but with a similar setting,
+namely again GLAST+ cells from the murine sSVZ, this time comparing wildtype with a double-knockout
+of both interferon receptors (alpha/beta and gamma).
+
+The data was the basis of this publication: Carvajal Ibañez, Skabkin, Hooli, et al.: *Interferon regulates neural stem cell function at allages by orchestrating mTOR and cell cycle*. EMBO Molecular Medicine 15:e16434 (2023).
+
+### Loading and preprocessing
+
+Here, we perform preprocessing as before.
+
+```{r}
+suppressPackageStartupMessages({
+  library( tidyverse )
+  library( Matrix ) })
+```
+
+The data is provided, as before, in MatrixMarket format:
+
+```{r}
+mtx_mm <- read.delim( gzfile( "/mnt/raid/ifnagrko/ifnagrko_raw_counts.mtx.gz" ), 
+   comment.char="%", sep=" ", header=FALSE )
+head( mtx_mm )
+```
+
+Again, we have a seperate file with gene annotations. We remove the first column, as
+it contains only line numbers.
+
+```{r}
+genes <- read_csv( "/mnt/raid/ifnagrko/ifnagrko_var.csv", show_col_types=FALSE )[,-1] 
+head( genes )
+```
+For the cell annotation, our file is richer than usual as it contains not
+only the barcodes (as usual) but also all the results of Damian et al.'s 
+previous analysis:
+
+```{r}
+cells <- read_csv( "/mnt/raid/ifnagrko/ifnagrko_obs.csv" )
+head(cells)
+```
+We assemble the count matrix:
+
+```{r}
+counts <- 
+  sparseMatrix(
+    dims = c( mtx_mm$V2[1], mtx_mm$V1[1] ),
+    i = mtx_mm$V2[-1],
+    j = mtx_mm$V1[-1],
+    x = mtx_mm$V3[-1],
+    dimnames = list( genes$gene_name, cells$barcode ) )
+
+counts[ 1:5, 1:5 ]
+```  
+
+Free up some memory
+```{r}
+rm( mtx_mm )
+```
+
+Log-normalization:
+```{r}
+totals <- colSums(counts)
+fracs <- t( t(counts) / totals )
+lfracs <- log1p( fracs * 1e4 )
+```
+
+Selection of highly variable genes:
+
+```{r}
+gene_frac_means <- rowMeans( fracs )
+gene_frac_vars <- sparseMatrixStats::rowVars( fracs )
+sort( gene_frac_vars / gene_frac_means, decreasing=TRUE ) %>% 
+   head( 1000 ) %>% names() -> hvg
+
+plot( gene_frac_means, gene_frac_vars / gene_frac_means, pch=".", log="xy",
+      col = ifelse( names(gene_frac_means) %in% hvg, "red", "black" ))
+abline( h = mean( 1/totals), col="darkblue" )
+```
+
+Perform PCA:
+
+```{r}
+pca <- irlba::prcomp_irlba( t(lfracs[ hvg, ]), n=30, scale.=TRUE )
+rownames(pca$x) <- colnames(lfracs)   # cells
+rownames(pca$rotation) <- hvg         # genes
+```
+
+Plot first two PCs
+
+```{r}
+plot( pca$x[,1], pca$x[,2], pch=".", asp=1 )
+```
+Get a UMAP. This time, we let `umap` do the neighborhood search and extract the result
+for further use
+```{r}
+ump <- uwot::umap( pca$x, min_dist=.1, ret_nn=TRUE )
+nn <- ump$nn$euclidean
+ump <- ump$embedding
+```
+
+Here is the UMAP:
+```{r}
+plot( ump, pch=".", asp=1, col = adjustcolor( "black", alpha=.2 ) )
+```
+
+It's useful to use sleepwalk, too. (Not run.)
+```{r eval=FALSE}
+sleepwalk::sleepwalk( ump, pca$x )
+```
+
+For Leiden clustering, we get the NN graph from the NN data returned by umap,
+then run `igraph::leiden`:
+
+```{r}
+edge_table <-
+  map_dfr( 2:ncol(nn$idx), function(i)
+    tibble( 
+      from = 1:nrow(nn$idx), 
+      to = nn$idx[,i] ) )
+nn_graph <- igraph::graph_from_edgelist( as.matrix(edge_table), directed=FALSE )
+set.seed( 13245768 )
+leiden <- igraph::cluster_leiden( nn_graph, objective_function="modularity" )
+```
+
+Here's the clusters:
+
+```{r}
+as_tibble( ump ) %>%
+  add_column( cluster = factor( leiden$membership) ) -> ump_with_cluster
+
+ump_with_cluster %>%
+  group_by( cluster ) %>%
+  summarise_all( mean ) -> cluster_centers_ump
+
+ggplot( ump_with_cluster, aes( x=V1, y=V2 ) ) +
+  geom_point( aes( col=cluster ), size=.1 ) +
+  geom_text( aes( label=cluster ), data=cluster_centers_ump ) +
+  coord_equal()
+```
+Damian et al. (the paper authors) have performed clustering, too, and annotated 
+the clusters with cell types. We plot their annotation into our UMAP, for comparison:
+
+```{r}
+as_tibble( ump ) %>%
+bind_cols( cells ) %>%
+group_by( celltype ) %>%
+summarise( V1=mean(V1), V2=mean(V2) ) -> tmp
+
+as_tibble( ump ) %>%
+bind_cols( cells ) %>%
+ggplot( aes( x=V1, y=V2 ) ) +
+  geom_point( aes( col=celltype ), size=.1 ) +
+  geom_text( aes( label=celltype ), data = tmp, angle=-30 ) +
+  coord_equal() +
+  guides( colour = guide_legend( override.aes = list(size=3) ) )
+```
+
+Of interest for us is the "lineage", i.e., teh progression from quiescent neural stem cells (qNSCs)
+via active stem cells (aNSCs) and transit amplifying progenitors (TAPs) towards neuroblasts (NBs).
+We can only see early NBs and no late NBs are mature neurons as the cells have been gated for
+GLAST protein expression. 
+
+Here are these "lineage" cells all highlighted in one color:
+
+```{r}
+as_tibble( ump ) %>%
+bind_cols( cells ) %>%
+ggplot( aes( x=V1, y=V2 ) ) +
+geom_point( aes( col=celltype1 ), size=.1 ) +
+  coord_equal() +
+  guides( colour = guide_legend( override.aes = list(size=3) ) )
+```
+
+### Pseudotime
+
+Within the lineage, there is a gradual, continuous transition, and it using
+Leiden clustering, which imposes sharp boundaries, does not seem the right 
+way. Hence, we want instead to assign to each lineage cell a *pseudotime* -- 
+a value indicating how far along the cell is in the progression.
+
+Here is the pseudotime used in the paper:
+
+```{r}
+as_tibble( ump ) %>%
+bind_cols( cells ) %>%
+ggplot( aes( x=V1, y=V2 ) ) +
+geom_point( aes( col=dpt_pseudotime ), size=.1 ) +
+  coord_equal() +
+  scale_color_viridis_c()
+```
+They used a method known as "diffusion pseudotime" (DPT), implemented in the "destiny"
+package, to get there. We will first try another method, known as "principal curve".
+
+First, however, just for comparison, again *their* pseudotime, but now with *their*
+UMAP:
+
+```{r}
+cells %>%
+ggplot( aes( x=UMAP1, y=UMAP2 ) ) +
+geom_point( aes( col=dpt_pseudotime ), size=.1 ) +
+  coord_equal() +
+  scale_color_viridis_c()
+```
+
+### Principal curves
+
+The "princurve" package allow to fit a "principal curve" through a point cloud.
+This is a curve chosen such that the variance of the points images of a normal
+projection onto the curve is maximal (with some constraints on the curve to get
+some "stiffness").
+
+We try this out. As the function is slow, we use only a subset (sample) of the lineage cells.
+
+```{r}
+set.seed( 13245768 )
+sampled_lng_cells <- sample( cells$barcode[ cells$celltype1=="lineage" ], 2000 )
+prcs <- princurve::principal_curve( pca$x[ sampled_lng_cells, ], df=10, trace=TRUE )
+```
+Here's the plot:
+
+```{r}
+as_tibble( ump, rownames="cell" ) %>%
+left_join( enframe( prcs$lambda, "cell", "lambda" ) ) %>%
+arrange( !is.na(lambda) ) %>%
+ggplot( aes( x=V1, y=V2 ) ) +
+  geom_point( aes( col=lambda ), size=.1 ) +
+  coord_equal() + scale_color_viridis_c()
+```
+How do the two pseudotimes compare?
+
+```{r}
+cells %>%
+left_join( enframe( prcs$lambda, "barcode", "lambda" ) ) %>%
+ggplot() +
+  geom_point( aes( x=dpt_pseudotime, y=lambda ), size=.4 )
+```
+
+There seems to be noticeable disagreement.
+
+I am, to be honest, not sure which result to believe more, and therefore will 
+perform a few more analyses. For now, let's use the pseudotime from the paper.
+
+### Expression along pseudotime
+
+How does the expression of a gene change along the pseudotime?
+
+Let's look at Slc1a3, the gene coding for GLAST:
+
+First, a normal coloured UMAP feature plot:
+
+```{r}
+as_tibble( ump ) %>%
+add_column( expr = lfracs["Slc2a1",] ) %>%
+ggplot( aes( x=V1, y=V2 ) ) +
+  geom_point( aes( col=expr ), size=.1, alpha=.3 ) +
+  coord_equal() + scale_color_viridis_c( direction=-1 )
+```
+Maybe, binarizing it makes it easier to see:
+
+```{r}
+as_tibble( ump ) %>%
+add_column( expr = lfracs["Slc2a1",]>0 ) %>%
+ggplot( aes( x=V1, y=V2 ) ) +
+  geom_point( aes( col=expr ), size=.1, alpha=.3 ) +
+  coord_equal() + scale_color_manual( values=c("gray80","darkblue") )
+``` 
+
+Still, hard to see something. Typical "salt-and-pepper plot".
+
+Plotting against pseudotime might make things clearer:
+
+```{r}
+plot( cells$dpt_pseudotime, lfracs["Slc2a1",])
+```
+
+As there are so many zero values, this is still hard to interpret.
+
+Let's sort the cells by pseudotime, form "bins" of 50 cells each that
+are next to each other in pseudotime, and average:
+
+```{r}
+tibble( 
+  pt = cells$dpt_pseudotime,
+  expr = lfracs["Slc2a1",] ) %>%
+filter( !is.na(pt) ) %>%
+arrange( pt ) %>%
+mutate( pt_bin = floor( row_number() / 50 ) ) %>%
+group_by( pt_bin ) %>%
+summarise_at( c( "pt", "expr" ), mean ) %>%
+ggplot() +
+  geom_point( aes( x=pt, y=expr ) )
+```
+
+This plot has two problems:
+
+- It's still not a smooth curve
+- The distance of the zero line from the rest depends on the scaling factor we used in the 
+  log-normalisation.
+  
+To see the latter, change teh scaling factor from 1e4 to 1e5:  
+
+```{r}
+tibble( 
+  pt = cells$dpt_pseudotime,
+  expr = log1p( fracs["Slc2a1",] * 1e5 ) ) %>%
+filter( !is.na(pt) ) %>%
+arrange( pt ) %>%
+mutate( pt_bin = floor( row_number() / 50 ) ) %>%
+group_by( pt_bin ) %>%
+summarise_at( c( "pt", "expr" ), mean ) %>%
+ggplot() +
+  geom_point( aes( x=pt, y=expr ) )
+```
+
+Let's use the "locfit" package to get a decent smooth curve:
+
+```{r}
+library( locfit )
+
+tibble( 
+  t = cells$dpt_pseudotime,
+  k = counts["Slc2a1",],
+  s = totals ) %>%
+filter( !is.na(t) ) -> ptfit_data
+
+fit <- locfit( k ~ lp(t,h=.2), base=log(s), ptfit_data, family="poisson", ev=lfgrid(300) )
+plot( fit, log="" )
+```
+
+To understand what is going on here, we need to learn about *kernel smoothing* and
+*local regression*. For this, we start a new notebook.
+
+### Homework 1
+
+Find 20 genes that differ strongly between qNSCs and NBs. Calculate smoothed fits 
+of their expression along pseudotime (like the one just made above). Make a heatmap
+where the rows are genes, the columns are pseudotime bins, and the colour is the fitted
+value for the gene's expression at the respective pseudotime points. 
+
+Compare a heatmap made with locfit with one made by simple pseudotime binning and 
+averaging.
+
+### Homework 2
+
+Above, we have averaged over cells with similar pseudotime. So, we have reduced
+our analysis to a 1D look. Let's try something different but no more difficult:
+
+For each cell, get three estimates of its expression of Slc1a3:
+
+- First, the usual lfrac value, i.e., $\log( k/s \cdot 10^4 + 1)$.
+
+- Second: Average these lfrac values over the cell's 20 (or 50) nearest neighbors.
+  Include the cell itself among its neighbours. Consider this average-over-neighbors
+  as an estimate of the cell's expression. 
+  
+- Third: Instead of averaging the log-fractions, add up the counts for the gene of interest
+  over all the neighbours (including the cell itself) and divide it by the sum of all the total,
+  i.e., calculate $\sum_j k_j / \sum_j s_j$, where both sums run over the cell and its 20
+  nearest neighbors.
+  
+Plot UMAPs and color the points by these estimates. Experiment with different neighborhood
+sizes. Which seems to be most useful?
+
+Also: Calculate for each cell the "deviance" between of its neighborhood-smoothed estimate $\hat q$
+and its observed value $k$:
+
+$$ D = -2 \left( \log f_\text{Pois}( k; s\hat q ) -  \log f_\text{Pois}( k; k ) \right), $$
+where $f_\text{Pois}(k,\lambda)$ is the Poisson probability mass function, i.e., the probability
+to observe $k$ when drawing from a Poisson distribution with rate parameter $\lambda$. (In R, use `dpois( k, lambda, log=TRUE )` to get $\log f_\text{Pois}(k,\lambda)$.) 
+
+Derive from the deviance the "deviance residual" $z=\sqrt{D}\cdot\operatorname{sgn}(k-s\hat q)$ and use that to colour
+your UMAPs. What might this tell you?

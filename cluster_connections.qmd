@@ -1,0 +1,104 @@
+```{r}
+suppressPackageStartupMessages({
+  library( tidyverse )
+  library( Matrix ) })
+
+load( "isre_data.rda" )
+```
+Rerun Leiden clustering
+
+```{r}
+# Construct table of all edges
+edge_table <-
+  map_dfr( 2:20, function(i)
+    tibble( 
+      from = 1:nrow(nn$idx), 
+      to = nn$idx[,i] ) )
+
+# Make graph
+nn_graph <- igraph::graph_from_edgelist( as.matrix(edge_table), directed=FALSE )
+
+# Run Leiden -- this time with a fixed random seed to get a stable output
+set.seed( 13245768 )
+leiden <- igraph::cluster_leiden( nn_graph, objective_function="modularity" )
+
+# Prepare tables for plot
+as_tibble( ump ) %>%
+add_column( cluster = factor( leiden$membership) ) -> tmp
+
+tmp %>%
+group_by( cluster ) %>%
+summarise_all( mean ) -> tmp2
+
+# Plot
+ggplot( tmp, aes( x=V1, y=V2 ) ) +
+  geom_point( aes( col=cluster ), size=.1 ) +
+  geom_text( aes( label=cluster ), data=tmp2 ) +
+  coord_equal()
+```
+
+
+```{python}
+import numpy as np
+
+membership = np.array( r["leiden$membership"], int ) - 1
+nn_idx = r["nn$idx"] - 1
+
+ncluster = membership.max() + 1
+cluster_connections = np.zeros( ( ncluster, ncluster ), int )
+
+for cell1 in range(nn_idx.shape[0]):
+   for cell2 in nn_idx[ cell1, ]:
+      if cell1 < cell2:
+         cl1 = membership[cell1]
+         cl2 = membership[cell2]
+         if cl1 <= cl2:
+            cluster_connections[ cl1, cl2 ] += 1
+         else:
+            cluster_connections[ cl2, cl1 ] += 1
+         
+r["cluster_connections"] = cluster_connections
+
+```
+
+```{r}
+cluster_connections
+```
+```{r}
+ump %>%
+as_tibble() %>%
+rename( x=V1, y=V2 ) %>%
+mutate( cluster = leiden$membership ) %>%
+group_by( cluster ) %>%
+summarise( 
+  x = mean(x),
+  y = mean(y),
+  ncells = n() ) -> cluster_centers
+
+cluster_centers
+```
+```{r}
+ggplot( cluster_centers, aes( x=x, y=y ) ) +
+  geom_point( aes( col=factor(cluster), size=ncells ) ) +
+  geom_text( aes( label=cluster ) ) +
+  coord_equal() + scale_size_area( max_size=10 )
+```
+
+```{r}
+cluster_connections %>%
+as_tibble() %>%
+mutate( cluster1 = row_number() ) %>%
+pivot_longer( -cluster1, names_to="cluster2", values_to="n" ) %>%
+mutate( cluster2 = as.integer( str_remove( cluster2, "V" ) ) ) %>%
+left_join( cluster_centers, by=c( "cluster1" = "cluster" ) ) %>%
+rename( x1 = x, y1 = y, ncells1=ncells ) %>%
+left_join( cluster_centers, by=c( "cluster2" = "cluster" ) ) %>%
+rename( x2 = x, y2 = y, ncells2=ncells ) %>%
+ggplot +
+  geom_segment( aes( x=x1, y=y1, xend=x2, yend=y2, size=n/sqrt(ncells1*ncells2) ) ) +
+  scale_size( range=c(0,10) ) +
+  #geom_point( aes( x=x, y=y, col=factor(cluster), size=ncells*200 ), data=cluster_centers ) +
+  geom_text( aes( x=x, y=y, label=cluster ), data=cluster_centers ) +
+  coord_equal()
+  
+```
