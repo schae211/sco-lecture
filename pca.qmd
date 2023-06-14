@@ -455,6 +455,7 @@ pca$sdev^2 * (nrow(pca$x)-1)
 ### Why we use the eigendecomposition
 
 *Note on notation:* In thi section, we will use index letters with fixed meaning:
+
 - $i=1,\dots,n$ always indexes the observations (cells)
 - $j=1,\dots,m$ always indexes features (genes)
 - $l=1,\dots,m$ always indexes principal components (PCs)
@@ -527,5 +528,5 @@ total variance is preserved when the data is projected onto the axis specified b
 to which Q is diagonal, will give us the optimal basis for the variance decmoposition sought in PCA.
 
 Admittedly, this will seem intuitive only to those readers who have already attended a lecture in mechanics and
-wrestled with the inertial tensor -- the application that originally gave rise to the principal axes theorem, and
+successfully wrestled with understanding the inertial tensor -- the application that originally gave rise to the principal axes theorem, and
 which also provided the inspiration to Pearson to invent PCA.
