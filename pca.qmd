@@ -455,6 +455,7 @@ pca$sdev^2 * (nrow(pca$x)-1)
 ### Why we use the eigendecomposition
 
 *Note on notation:* In thi section, we will use index letters with fixed meaning:
+
 - $i=1,\dots,n$ always indexes the observations (cells)
 - $j=1,\dots,m$ always indexes features (genes)
 - $l=1,\dots,m$ always indexes principal components (PCs)
@@ -522,7 +523,7 @@ $$ \frac{1}{n-1}\sum_i\left(y_{ij}-\langle y_{i'j}\rangle_{i'}\right) \left(y_{i
 As our data matrix is column centered, this can be simplified to $\frac{1}{n-1}\sum_i y_{ij} y_{ij'}$, which is, up to the omitted
 prefactor $\frac{1}{n-1}$, the matrix element in the $j$-th row and the $j'$the column of $Y^\mathsf{T}Y$.
 
-We can interpret the covariance matrix as a quadratic form (i.e., a quadratic function, mapping a vector to a scalar), $Q(\mathbf{v})=\mathbf{v}Y^\mathsf{T}T\mathbf{v}$, that tells us, when given a unit vector $\mathbf{v}$, how much of the data's
+We can interpret the covariance matrix as a quadratic form (i.e., a quadratic function, mapping a vector to a scalar), $Q(\mathbf{v})=\mathbf{v}Y^\mathsf{T}Y\mathbf{v}$, that tells us, when given a unit vector $\mathbf{v}$, how much of the data's
 total variance is preserved when the data is projected onto the axis specified by $\mathbf{v}$. Hence, choosing the axes with regards
 to which Q is diagonal, will give us the optimal basis for the variance decmoposition sought in PCA.
 
