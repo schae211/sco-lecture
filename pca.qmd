@@ -104,11 +104,11 @@ Can we find it again? This is the aim of principal component analysis (PCA).
 
 ### Aim of PCA
 
-In a principal component analysis, we are given an $n times k$ data matrix $Y$, where each row $\mathbf{y}_i$ describes one of $n$ observation (e.g., each row is one cell), while the columns of $Y$ (components of the $\mathbf{y}_i$) are the different variables (or "features"; for us, genes) observed for each observation. The features span an $\mathbb{R}^k$ vector space, the "feature space".
+In a principal component analysis, we are given an $n \times m$ data matrix $Y$, where each row $\mathbf{y}_i$ describes one of $n$ observation (e.g., each row is one cell), while the columns of $Y$ (components of the $\mathbf{y}_i$) are the different variables (or "features"; for us, genes) observed for each observation. The features span an $\mathbb{R}^m$ vector space, the "feature space".
 
-As a preparation, we subtract from each colums of $Y$ its mean, yielding the "centered data matrix $Y^\text{c}$. In other words: after centering, the expected value of each feature is zero. Often, one afterwards also divides each column by its standard deviation ("centering and scaling" of the data), but we skip this here.
+As a preparation, we subtract from each colums of $Y$ its mean, yielding the "centered data matrix $Y^\text{c}$. In other words: after centering, the average value of each feature is zero. Often, one afterwards also divides each column by its standard deviation ("centering and scaling" of the data), but we skip this here.
 
-The objective is now to find a rotation matrix $R\in O(k)$ (i.e., an orthonormal matrix, $R^\mathsf{T}R=I$) to transform the observation vectors $\mathbf{y}_i$ into a new basis, $\mathbf{x}_i = R\mathbf{y}^\text{c}_i$, and thus form a new data matrix $X=Y^\text{c}R$, such that - the columns of $X$ are pairwise orthogonal - the sample variances of the columns of $X$ are maximal, and - the columns of X are sorted by their variance.
+The objective is now to find a rotation matrix $R\in O(m)$ (i.e., an orthonormal matrix, $R^\mathsf{T}R=I$) to transform the observation vectors $\mathbf{y}_i$ into a new basis, $\mathbf{x}_i = R\mathbf{y}^\text{c}_i$, and thus form a new data matrix $X=Y^\text{c}R$, such that - the columns of $X$ are pairwise orthogonal - the sample variances of the columns of $X$ are maximal, and - the columns of X are sorted by their variance.
 
 While each column of $Y$ or $Y^\text{c}$ corresponds to a feature (a directly measurable quantity), each column of $X$ corresponds to a linear combination of features. We say that each column describes a principal factor (PC) of the data.
 
@@ -523,7 +523,7 @@ $$ \frac{1}{n-1}\sum_i\left(y_{ij}-\langle y_{i'j}\rangle_{i'}\right) \left(y_{i
 As our data matrix is column centered, this can be simplified to $\frac{1}{n-1}\sum_i y_{ij} y_{ij'}$, which is, up to the omitted
 prefactor $\frac{1}{n-1}$, the matrix element in the $j$-th row and the $j'$the column of $Y^\mathsf{T}Y$.
 
-We can interpret the covariance matrix as a quadratic form (i.e., a quadratic function, mapping a vector to a scalar), $Q(\mathbf{v})=\mathbf{v}Y^\mathsf{T}T\mathbf{v}$, that tells us, when given a unit vector $\mathbf{v}$, how much of the data's
+We can interpret the covariance matrix as a quadratic form (i.e., a quadratic function, mapping a vector to a scalar), $Q(\mathbf{v})=\mathbf{v}^\mathsf{T}Y^\mathsf{T}T\mathbf{v}$, that tells us, when given a unit vector $\mathbf{v}$, how much of the data's
 total variance is preserved when the data is projected onto the axis specified by $\mathbf{v}$. Hence, choosing the axes with regards
 to which Q is diagonal, will give us the optimal basis for the variance decmoposition sought in PCA.
 

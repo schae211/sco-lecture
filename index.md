@@ -59,4 +59,5 @@ about smoothing methods.
 
 ### Principal component analysis
 
-[Here](pca.html), we learn how PCA really works.
+[Here](pca.html), we learn how PCA really works, and [here](pca2.html), we see its
+effect on cell-to-cell distances.
