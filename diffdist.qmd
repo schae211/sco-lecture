@@ -1,0 +1,465 @@
+---
+format: html
+---
+
+```{r}
+suppressPackageStartupMessages( library( tidyverse ) )
+```
+
+Here's the code to make our example data:
+
+```{r}
+set.seed( 13245768 )
+
+knots1 <- cbind(
+  c( 0.1, 1.0, 1.7, 2.5, 2.8, 2.4, 2.2, 3.2, 4.0, 5.2 ),
+  c( 1.0, 1.2, 1.7, 1.9, 1.5, 1.1, 0.2, 0.6, 1.1, 1.2 ) )
+
+knots2 <- cbind(
+  c( 0.1, 1.0, 1.7, 2.5, 2.8, 2.4, 2.1, 2.5, 2.5, 2.6 ),
+  c( 1.0, 1.2, 1.7, 1.9, 1.5, 1.1, 0.2, 0.0, -.3, -.7 ) )
+
+spline_basis <- splines::bs( seq( 0, 1, l=1000), df=nrow(knots1), intercept=TRUE )
+
+x0 <- abind::abind(
+  bs( t, df=nrow(knots1), intercept=TRUE ) %*% knots1 +
+    matrix( rnorm( 2000, 0 , .1), ncol=2 ),
+  bs( t, df=nrow(knots2), intercept=TRUE ) %*% knots2 +
+    matrix( rnorm( 2000, 0 , .1), ncol=2 ),
+  along=3 )
+
+x <- t( sapply( 1:length(t), function(i) x0[i,,br[i]] ) )
+rm(x0)
+
+plot( x, col=br, asp=1 )
+```
+
+
+### A diffusion process
+
+Let's define a "random-walk" process as follows. A time step 0, we place a "token"
+on one cell which we call the "starting cell". In each time step, the token "hops"
+to another cell. The probability $p_{ij}$ that the token will hop from cell $i$ to cell $j$
+depends on the distance $d_{ij}$ between these cells, according to a normal kernel $k_{ij}$:
+$$p_{ij} \propto k_{ij} = e^{-d_{ij}^2/\sigma^2}.$$ 
+
+These probabilities have to be normalized, so that the probabilty that *something*
+happens (including that the tokens stays where it is) is 1. Therefore $\sum_j p_{ij}=1$.
+
+Thus we define normalization constants
+$$ z_i = \sum_{j}e^{-d_{ij}^2/\sigma^2} $$
+and use them to set
+$$ p_{ij} = \frac{ e^{-d_{ij}^2/\sigma^2} }{ z_i } $$
+
+Note that our initial "kernel matrix" $K$ is symmetric, while the row-normalization caused
+the "transition matrix" $P$ to lose this symmetry. 
+
+Let's make the kernel matrix $P$ (`km` in the code), the normalization vector $\mathbf{z}$ (`zv` in the code) 
+and the transition matrix $P$ (or `trm`). Let's chose $\sigma=.2$ for the kernel half-width.
+
+```{r}
+sigma <- .3
+km <- exp( -as.matrix(dist(x))^2 / sigma^2 )
+zv <- rowSums(km)
+trm <- km / zv
+```
+
+Let's pick a "start cell" $i$:
+```{r}
+i <- 530
+```
+
+The $i$-th row of our transition matrix tells us for each cell $j$ the probability that the token
+will end up there if we put the token at cell $j$ and perform one transition (one "hop").
+Let's visualize these probabilities (and mark the start cell with a $\times$):
+
+```{r}
+as_tibble( x ) %>%
+mutate( prob = trm[cell,] ) %>%
+ggplot( aes( x=V1, y=V2 ) ) + 
+  geom_point( aes( col=prob ) ) +
+  geom_point( shape="cross", col="orange", data=as_tibble(x)[cell,,drop=FALSE] ) +
+  coord_equal()
+```
+
+As we can see, the token "diffuses" around the initial cell, according to the Gaussian
+kernel with the halfwidth $\sigma=.2$.
+
+We can also describe the initial state (token at cell $i$ with probability 1) as a 
+unit vecor with a 1 at component $i$ and 0s everywhere else, i.e., as the basis
+vector $\mathbf{e}_i$. Let's write $\mathbf{v}_0=\mathbf{e}_i$ for this initial state. 
+
+```{r}
+v0 <- rep( 0, nrow(trm) )
+v0[cell] <- 1
+```
+
+Then, we can get the probability vector by multiplying the matrix $P$ with $\mathbf{v}_0$
+from the left: $\mathbf{v}_1^\mathsf{T} = \mathbf{v}_0^\mathsf{T} P$.
+
+```r
+v0 %*% trm
+```
+
+This gives the same result as looking at the $i$th matrix column.
+
+More generally, if we have vector $\mathbf{v}$ that describes a probability distribution
+for the token's place across the cells, we can calculate athe change in distribution
+due to a step by $\mathbf{v}'^\mathsf{T}=\mathbf{v}^\mathsf{T}P$. Note that the elemenets of
+$\mathbf{v}$ sum to 1 (because it is a probability vector), and $P$ preserves this property.
+This is because $P$'s column's sum to 1, and makes $P$ a "left-stochastic" matrix.
+
+Now, we see how to simulate two two susequent transitions, namely by right-multiplying the matrix twice to the vector:
+$\mathbf{v}_2^\mathsf{T}=\mathbf{v}_0^\mathsf{T}PP=\mathbf{v}_0^\mathsf{T}P^2$, or, in code:
+
+```r
+v0 %*% trm %*% trm
+```
+
+To get the vector after $t$ steps, we use $v_t^\mathsf{T} = v_0^\mathsf{T} P^t$, 
+where $P^t$ is the transition matrix $P$ taken to the $t$-th power.
+
+Let's try this, performing the repeated vector-matrix multiplication by a for loop:
+
+```{r}
+v <- v0
+for( i in 0:100 ) {
+  
+  if( i %in% c( 0, 1, 2, 3, 5, 10, 20, 30, 50, 100 ) ) 
+    print(
+      as_tibble( x ) %>%
+      mutate( prob = drop(v) ) %>%
+      ggplot( aes( x=V1, y=V2 ) ) + 
+        geom_point( aes( col=prob ) ) +
+        ggtitle( str_interp( "Step ${i}" ) ) +
+        coord_equal() )
+  
+  v <- v %*% trm 
+}  
+```
+
+The stochastic process described by our repeated matrix application is called a "random walk" or
+sometimes as "diffusion process" (even though, technically, that term describes the limit of making the steps
+infinitely small and numerous, to get "continuous" rather than stepwise transitions). Each step only depends
+on the current vecttor, not on its past. This is called the Markov property, and the sequence of vectors
+is called a Markov chain.
+
+We notice: 
+
+- Initially, the transitions initally explore the manifold, creeping along their length. As we will see soon, 
+we can use this to define a distance that measures "along" the manifold, following its
+bends and curves, and which is therefore suitable to define a pseudotime.
+
+- After a while, we converge to a staionary distribution, with weight where the points are densest. 
+
+#### Stationary distribution
+
+Let's first have a closer look at this limiting distruibution, by running a few more steps:
+
+```{r}
+v <- v0
+for( i in 1:1000 ) {
+    v <- v %*% trm 
+    v <- v / sum(v)
+}  
+
+as_tibble( x ) %>%
+mutate( prob = drop(v) ) %>%
+ggplot( aes( x=V1, y=V2 ) ) + 
+  geom_point( aes( col=prob ) ) +
+  ggtitle( str_interp( "Step ${i}" ) ) +
+  coord_equal() 
+```
+
+Interestingly, this limiting distribution does not depend on where we start, as can be seen by 
+trying different starting cells. Intuitively, we
+can see that as the distribution spreads out, we lose the information on where we started and hence,
+it cannot matter. (This is only true, because we can get from any cell to any other cell with non-zero
+probability.)
+
+The mathematical theory of Markov chains clarifies when a Markov chain has a such a limiting 
+(or: stationary) distribution, and when it is unique and reachable from any starting state. 
+One can show that this is the case here, because of the nature of our kernel, and because
+every cell can be reached from every other cell.
+
+The limiting distribution is a fix-point of the repeated application of $P$, and therefor
+should satisfy: $\mathbf{v}_\infty^\mathsf{T}P = \mathbf{v}_\infty^\mathsf{T}$. 
+
+Interestingly, our normalization vector $\mathbf{z}$ (see above) fulfils the fixpoint equation:
+
+$$\left( \mathbf{z}^\mathsf{T}P \right)_i = \sum_j z_i p_{ij} = \sum_j z_i\frac{k_{ij}}{z_i}=\sum_j k_{ij}=z_i,$$
+and, therefore, $\mathbf{z}^\mathsf{T}P=\mathbf{z}^\mathsf{T}$. Let's see if the vector $\mathbf{v}_0^\mathsf{T}P^{10000}$ that we
+have just calculated is close to $\mathbf{z}$:
+```{r}
+plot( zv, v )
+```
+
+Hence:
+$$ \mathbf{v}_\infty=\frac{\mathbf{z}}{\sum_i z_i}$$
+Let's store nromalized `zv` as `zn`:
+
+```{r}
+zn <- zv / sum(zv)
+```
+
+Note that $\mathbf{z}$ (or $\mathbf{v}_\infty$) if a left eigenvector of $P$ to eigenvalue 1. The claim
+(made above) that the stationary distribution is unique implies that the eigenvalue 1 has 
+geometric multiplicity 1 (i.e., a one-dimensional eigenspace). It is also straight-forward to show
+this eigenvalue is the largest eigenvalue (in absolute value), because the eigenradius of a stochastic
+matrix is bounded by 1.
+
+Let's quickly check this by looking at the left eigensystem of $P$:
+
+```{r}
+eig <- eigen( t(trm) )
+```
+
+In fact, the largest eigenvalue is 1:
+
+```{r}
+head( eig$values )
+```
+
+As a side note: `eigen` has reported the eigensystem in complex numbers, but all imaginary components of the 
+eigenvalues are zero:
+
+```{r}
+max( abs( Im( eig$values ) ) )
+```
+
+For the eigenvectors, we better look at the arguments (complex phases) to see that
+they are all real:
+
+```{r}
+hist( atan2( Im(eig$values), Re(eig$vectors) ), 100 )
+```
+
+Now, back to the stationary distribution. Let's check whether the eigenvector corresponding to eigenvalue 1 
+is (up to nromalization) identical to $\mathbf{z}$:
+
+```{r}
+plot( zn, Re(eig$vectors[,1]) )
+```
+(Remember that eigenvectors are usually normalized by L2 norm, while our `zn` has unit L1 norm.)
+
+### Diffusion distances
+
+How can we use our MArkov chains to define a distance?
+
+We could ask how many hops one need to get from cell $i$ to cell $j$, but this is 
+hard to turn into a good defintion?
+
+Therefore, Coifman and Lafon suggested the following: Let's start two Markov chains,
+one from each cells, run them for a fixed number $t$ of steps, and then compare 
+the *overlap* of the two distributions. The distance between the two distributions
+is the "diffusion distance" between the two cells.
+
+Let's write $\mathbf{y}_{i,t}^\mathsf{T}=\mathbf{e}_i^\mathsf{T}P^t$ and 
+$\mathbf{y}_{j,t}^\mathsf{T}=\mathbf{e}_j^\mathsf{T}P^t$ for the distributions thus obtained.
+Note that $y_{ik,t}$, the $k$-th component of $\mathbf{y}_{i,t}$ and the probability
+of getting from cell $i$ to cell $k$ in $t$ steps, is element $ik$ of $P^t$.
+
+We might simply take
+$$ \| \mathbf{y}_{j,t} - \mathbf{y}_{j,t} \|^2 = \sum_l \left( (P^t)_{il} - (P^t)_{jl} \right)^2$$
+as the squared diffusion distance between $i$ and $j$. It turns out to be useful, however, to
+weight the components $\left( (P^t)_{il} - (P^t)_{jl} \right)$  of the some by comparing
+teh squared differences with the probability of cell $l$ in the stationary distribution. We
+therefore define
+$$ d_{ij,t}^2 = \sum_l \frac{\left( (P^t)_{il} - (P^t)_{jl} \right)^2}{v_{l,\infty}},$$
+where $v_{l,\infty}$ is the $l$-th component of $\mathbf{v}_\infty$ (the stationary distribution
+obtained by normalizing the kernel row sum vector $\mathbf{z}$). This takes into account that 
+a differnce at some cell $l$ should be compared on the scale of that cell's overall probability
+of being reached.
+
+I could not, however, find a good explanation wht the denominator is not squared, like the
+numerator. However, without the square, we do get better results, as we will see.
+
+To get a matrix of distances from every cell to every cell, let's define a matrix $Q_t$ with element
+
+$$ q_{ij,t} = \frac{(P^t)_{ij}}{\sqrt{v_{j,\infty}}},$$
+so that we can write, using $mathbf{q}_{i,t}$ for the $i$-th column of $Q_t$:
+$$ d_{ij,t} = \| \mathbf{q}_{i,t} - \mathbf{q}_{j,t}\|.$$
+Let's get $Q_10$ by first finding $P^{10}$ via repeated matrix multiplication and then dividing by $\mathbf{v}_{j,\infty}$:
+
+```{r}
+trm10 <- diag( nrow=nrow(trm) )  # identity matrix
+for( i in 1:10 )
+  trm10 <- trm10 %*% trm
+q10 <- t( t(trm10) / sqrt(zn) )
+```
+
+Now, we can get our diffusion distance matrix $D_t$ (containing the distances of all pairs of cells) by getting the
+EUclidean distances of all pairs of column vectors of $Q_t$:
+
+```{r}
+d10 <- as.matrix( dist( q10 ) )
+```
+
+Here are the diffusion distances from our original starting cell, cell r`cell`, to all other cells:
+
+```{r}
+as_tibble( x ) %>%
+mutate( dist = d10[cell,] ) %>%
+ggplot( aes( x=V1, y=V2 ) ) + 
+  geom_point( aes( col=dist ) ) +
+  coord_equal() +
+  scale_color_viridis_c()
+```
+
+#### Distances to end cells and pseudotime
+
+For our next trick, we need to cells at the "ends" of the manifold. We find the
+right-hand end cell by taking the cell farthest from our starting cell:
+
+```{r}
+end_cell <- which.max( d10[cell,] )
+```
+
+Here's the distances from this "end cell":
+
+```{r}
+as_tibble( x ) %>%
+mutate( dist = d10[end_cell,] ) %>%
+ggplot( aes( x=V1, y=V2 ) ) + 
+  geom_point( aes( col=dist ) ) +
+  coord_equal() +
+  scale_color_viridis_c()
+```
+
+Let's take the cell farthest from the "end cell" and call it the "start cell":
+
+```{r}
+start_cell <- which.max( d10[end_cell,] )
+```
+
+Now, let's make a scatter plot, showing the distances of each cell to start and end cell:
+
+```{r}
+plot(
+  d10[ start_cell, ],
+  d10[ end_cell, ],
+  asp = 1,
+  xlab="distance to start cell", ylab = "distance to end cell",
+  main = "Diffusion distance at t=10"
+)
+```
+We observe:
+
+- the "side branch" sticks out, allowing us to say for each cell whether it is on
+the "start branch", the "end branch" or the "side branch".
+- The cells have been brought into a clear order that should allow us to define a 
+"pseudotime" from start to end cell, by projecting onto the antidiagonal:
+
+```{r}
+as_tibble( x ) %>%
+mutate( pseudotime = d10[start_cell,] - d10[end_cell,] ) %>%
+ggplot( aes( x=V1, y=V2 ) ) + 
+  geom_point( aes( col=pseudotime ) ) +
+  coord_equal() +
+  scale_color_viridis_c()
+```
+
+However, the pseudotime has bad resolution in the middle
+
+### Trying different diffusion times
+
+Maybe, using $t=10$ was not an optimal choice? Let's remake the scatter plot, but using different
+diffusion times:
+
+```{r}
+trmt <- diag( nrow=nrow(trm) )
+time_steps <- c( 0, 1, 2, 3, 5, 10, 20, 30, 100 )
+dl <- list()
+for( t in 0:100 ) {
+   if( t %in% time_steps ) {
+      qt <- t( t(trmt) / sqrt(zn) )
+      dt <- as.matrix( dist(qt) )
+      dl <- append( dl, list( dt[ c( start_cell, end_cell ), ] ) ) 
+  }
+  trmt <- trm %*% trmt
+}
+```
+
+```{r, fig.width=7, fig.height=7.5}
+names(dl) <- as.character(time_steps)
+map_dfr( dl, .id="diff_time", ~ { rownames(.) <- c("ds","de"); as_tibble(t(.))} ) %>%
+mutate( diff_time = fct_inorder(diff_time) ) %>%
+ggplot +
+  geom_point( aes( x=ds, y=de ), size=.2 ) +
+  facet_wrap( ~diff_time, scales="free" ) 
+```
+
+
+### Calculate transition matrix powers with eigenvalues
+
+We have spend a lot of time waiting for R to calculate $P^t$. We can speed this
+up by using the eigendecomposition, that we have calculated above.
+
+After all, with the eigendecomposition $P=U\Lambda U^\mathsf{T}$, we have
+$$ P^t = U\Lambda U^\mathsf{T}U\Lambda U^\mathsf{T}\dots U\Lambda U^\mathsf{T} = U\Lambda^t U^\mathsf{t},$$
+and $\Lambda^t$ is quickly calculated. 
+
+```{r}
+do.call( bind_cols, ptl ) %>%
+rename_all( ~ as.character(time_steps) ) %>%
+bind_cols( as_tibble(x) ) %>%
+pivot_longer( -starts_with("V"), names_to="diff_time", values_to="pseudotime" ) %>%
+mutate( diff_time = fct_inorder( diff_time ) ) %>%
+ggplot() +
+  geom_point( aes( x=V1, y=V2, ))
+
+```
+
+```{r}
+limit_dist <- Re(eig$vectors[,1])
+limit_dist <- limit_dist / sum(limit_dist)
+
+as_tibble( x ) %>%
+mutate( prob = limit_dist ) %>%
+ggplot( aes( x=V1, y=V2 ) ) + 
+  geom_point( aes( col=prob ) ) +
+  coord_equal() 
+```
+
+In the following, we will write $\mathbf{v}_\infty$ to indicate this vector: 
+$\mathbf{v}_\infty = \lim_{t\to \infty} v_\mathbf{0}^\mathsf{T}P^t$ (for (nearly) arbitrary $v_\mathbf{0}$),
+and $\mathbf{v}_\infty$ is the eigenvector of $P^\mathsf{T}$ corresponding to its largest eigenvalue 1.
+
+### Diffusion distance
+
+```{r}
+start_cell <- which.min(x[,1])
+end_cell <- which.max(x[,1])
+```
+
+The "original" diffusion distance, as suggested by Coifman and Lafon, fixes the number of steps. Let's use
+$t=50 $steps and ask: starting at each cell, what it the probability distribution after 50 steps? To get $\mathbf{e}_i^\mathsf{T}P^t$ for all cells $i$, we simply look at the rows of $P^t$. Therefore, let's calculate $P^{50}$:
+
+```{r}
+trm50 <- trm
+for( i in 2:50 )
+  trm50 <- trm50 %*% trm
+```
+
+Now, we can read off the probability vector (diffusion pattern) after 50 steps, when starting
+at cell $i$ simply by looking into the $i$-th column of the matrix $P^{50}$. Let's write $\mathbf{p}^t_i$
+for the $i$-th row of $P^t$.
+
+Let's get distances that way:
+
+```{r}
+dists1 <- as.matrix( dist( t(trm50) ) )
+plot( dists1[start_cell,], dists1[end_cell,] )
+```
+
+```{r}
+dists1 <- as.matrix( dist( t( t( t(trm50) / limit_dist ) ) ) )
+plot( dists1[start_cell,], dists1[end_cell,] )
+```
+
+```{r}
+trmt <- trm
+dists1 <- as.matrix( dist( t( t( t(trm) / limit_dist ) ) ) )
+plot( dists1[start_cell,], dists1[end_cell,], col=br )
+```
+
