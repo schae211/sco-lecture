@@ -56,3 +56,8 @@ and smooth gene expression along trajectories.
 
 To understand the "locfit" smoothing in the previous section, we learn [here](smoothing.html)
 about smoothing methods.
+
+### Principal component analysis
+
+[Here](pca.html), we learn how PCA really works, and [here](pca2.html), we see its
+effect on cell-to-cell distances.

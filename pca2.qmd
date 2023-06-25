@@ -1,0 +1,229 @@
+---
+format: html
+---
+
+## Applied Mathematics in Biology: Single Cell Omics
+
+Lecture Notes
+
+Simon Anders, Univ. Heidelberg, 2023-06
+
+## PCA and feature-space distances
+
+In our previous notebook, we explroed PCA with a toy data set. Unfortunately,
+the claim that PCA improves distance estimates, was not that convincing. This was
+because we sampled from a too simple latent-space distribution.
+
+Therefore, we will now use the PCA on a real data set in order to get an
+example for a realistic latent-space distribution, from which we will then 
+construct a simulated count data set.
+
+### PCA on the real data set
+
+We use again the IFNAGRKO data set. We load the data and perform the standard 
+analysis, up to PCA and UMAP.
+
+Let's first load the data.
+
+```{r}
+suppressPackageStartupMessages({
+  library( tidyverse )
+  library( Matrix ) })
+
+mtx_mm <- read.delim( gzfile( "/mnt/raid/ifnagrko/ifnagrko_raw_counts.mtx.gz" ), 
+   comment.char="%", sep=" ", header=FALSE )
+
+genes <- read_csv( "/mnt/raid/ifnagrko/ifnagrko_var.csv", show_col_types=FALSE )[,-1] 
+cells <- read_csv( "/mnt/raid/ifnagrko/ifnagrko_obs.csv", show_col_types=FALSE )
+counts <- 
+  sparseMatrix(
+    dims = c( mtx_mm$V2[1], mtx_mm$V1[1] ),
+    i = mtx_mm$V2[-1],
+    j = mtx_mm$V1[-1],
+    x = mtx_mm$V3[-1],
+    dimnames = list( genes$gene_name, cells$barcode ) )
+
+rm( mtx_mm )
+
+counts[ 1:5, 1:5 ]
+```
+Now, the PCA and UMAP
+
+```{r}
+totals <- colSums(counts)
+fracs <- t( t(counts) / totals )
+lfracs <- log1p( fracs * 1e4 )
+
+gene_frac_means <- rowMeans( fracs )
+gene_frac_vars <- sparseMatrixStats::rowVars( fracs )
+sort( gene_frac_vars / gene_frac_means, decreasing=TRUE ) %>% 
+   head( 2000 ) %>% names() -> hvg
+
+lfracs_hvg_scaled_centered <- scale( lfracs[hvg,] )
+
+pca <- irlba::prcomp_irlba( t(lfracs_hvg_scaled_centered), n=30, 
+    center=FALSE, scale.=FALSE )
+rownames(pca$x) <- colnames(lfracs)   # cells
+rownames(pca$rotation) <- hvg         # genes
+
+ump <- uwot::umap( pca$x )
+```
+
+Note that this time we performed the PCA with scaling. However, we have
+done the scaling manually, with the "scale" function, because itlba's
+PCA fails to save the scaling factors (and we will need them in the next step).
+
+Here's the UMAP:
+
+```{r}
+plot( ump, asp=1, pch=".", col="#00000030" )
+```
+
+Here's the matrix of PCA scores:
+
+```{r}
+pca$x[ 1:5, 1:5 ]
+```
+### Construction of simulated counts
+
+We will now simulate cells, one simulated cell for each
+cell from the original data. As the simulated cells' "true"
+latent state vectors, we use the rows of the score matrix `pca$x`.
+For the cells size factors, we rely on the original cells'
+count totals.
+
+Let us now invert the PCA transformation, i.e., rotate the PCA score
+matrix back into feature space, multiply the features (genes)
+with the scaling factors stored earlier and also add the centers.
+
+This way, we get a matrix, giving for each cell the
+expected fractions corresponding to each feature's count:
+
+```{r}
+lfracs_expected <- t( pca$x %*% t(pca$rotation) ) *
+    attr(lfracs_hvg_scaled_centered,"scaled:scale") +
+      attr(lfracs_hvg_scaled_centered,"scaled:center") - log(1e4)
+
+exp( lfracs_expected )[ 1:5, 1:5 ]
+```
+These expected fractions now roughly sum to 1 for each cell
+```{r}
+colSums( exp( lfracs_expected ) ) %>% head()
+```
+
+Let's normalize them to be proper fratc ions, that sum exactly to 1:
+
+```{r}
+fracs_expected <- t( t(exp(lfracs_expected)) / colSums( exp(lfracs_expected) ) ) 
+
+fracs_expected[1:5,1:5]
+head( colSums(fracs_expected) )
+```
+We multiply these values with column sums (sizes) of the original cells
+to get expected counts for our simulated cells:
+
+```{r}
+expected_counts <- t( t(fracs_expected) * colSums(counts) )
+```
+
+Now we use these expected count values as parameters for Poisson
+distributions, from which we now draw our final simulated counts:
+
+```{r}
+counts_new <- matrix( 
+    rpois( length(expected_counts), expected_counts ), 
+    ncol=ncol(expected_counts) )
+```
+
+### Standard analsys of the simulated counts
+
+Now analyse this data as if it were real count data: Log-normalize, then do PCA
+and UMAP:
+
+```{r}
+lfracs_new <- log1p( t( t(counts_new) / colSums(counts_new) ) * 1e4 )
+
+pca_new <- irlba::prcomp_irlba( t(lfracs_new), n=30, scale.=TRUE )
+
+ump_new <- uwot::umap( pca_new$x )
+```
+
+Here's the new UMAP:
+
+```{r}
+plot( ump_new, pch=".", asp=1, col="#00000030" )
+```
+
+As we can see, our simulated cells also live in a feature space manifold
+with complicated shape.
+
+### Comparing distances
+
+Now, let's compare cell-to-cell distances. We first draw 1500 pairs of cells:
+
+```{r}
+cells1 <- sample.int( ncol(lfracs_new), 1500, replace=TRUE )
+cells2 <- sample.int( ncol(lfracs_new), 1500, replace=TRUE )
+```
+
+Now, we calculate four different distances.
+
+First, the feature space distance: by this, we mean the distance
+in the space of the log fractions (log-normalized counts). This is what
+we might consider the distance measure closest to the "raw" data:
+
+```{r}
+dists_in_feature_space <- 
+    sqrt( colSums( ( lfracs_new[ , cells1 ] - lfracs_new[ , cells2 ] )^2 ) )
+```
+
+These distances are distorted due to the Poisson noise that comes with counting
+UMIs.
+
+Normally, we cannot know what the distances without the Poisson noise would
+have been, but in our distance, we know the expected count values that went
+into the Poisson draws. So, the distances without Poisson noise would be:
+
+```{r}
+dists_in_true_feature_space <- 
+    sqrt( colSums( ( log(fracs_expected[ ,cells1 ]) - log(fracs_expected[ , cells2 ]) )^2 ) )
+```
+
+Let's compare:
+
+```{r}
+plot( dists_in_true_feature_space, dists_in_feature_space, col="#00000030", asp=1 )
+```
+This does not look very convincing.
+
+Has the PCA saved us? Let's calculate the distances using the PCA scores:
+
+```{r}
+dists_in_pca_space <- 
+    sqrt( rowSums( ( pca_new$x[ cells1, ] - pca_new$x[ cells2, ] )^2 ) )
+
+plot( dists_in_true_feature_space, dists_in_pca_space, col="#00000030", asp=1 )
+```
+
+This now looks much better! 
+
+Now, we can clearly see how the PCA eliminated the Poisson noise and recovered 
+the underlying signal.
+
+### Latent-space distances
+
+Above, we have compared to the noiseless feature-space distances. For this,
+we used the expectations for the fractions, which were derived from the latent
+state vectors for which we used the PCA scores ob the original cells). How do the
+distances between these latent state vectors and the expected fraction vectors differ?
+
+```{r}
+dists_in_true_latent_space <- 
+    sqrt( rowSums( ( pca$x[ cells1, ] - pca$x[ cells2, ] )^2 ) )
+
+plot( dists_in_true_feature_space, dists_in_true_latent_space, col="#00000030", asp=1 )
+```
+As we see, our PCA inversion to construct the expected fraction has not introduced 
+that much distortion -- only a bit, perhaps due to the variable scaling factors. 
+However, we used a linear construction, which may not be that realistic.
+
