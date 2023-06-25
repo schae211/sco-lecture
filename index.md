@@ -64,6 +64,6 @@ effect on cell-to-cell distances.
 
 ### Pseudotime II: Diffusion distances
 
-[Here](princurves.html), we learn how principal curves are used to get a pseudotime,
+[Here](princurve.html), we learn how principal curves are used to get a pseudotime,
 and [here](diffdist.html) how diffusion maps are used for this purpose.
 
