@@ -468,7 +468,7 @@ So, for each observation (feature vector, row of Y), we can expand the feature v
 In the standard basis of the feature space,
 $$\mathbf{y}_i = \sum_{j=1}^m y_{ij} \mathbf{e}_j,$$
 and in the rotated basis formed by the PCs,
-$$\mathbf{y}_i = \sum_{l=1}^m r_{il} \mathbf{r}_l.$$
+$$\mathbf{y}_i = \sum_{l=1}^m x_{il} \mathbf{r}_l.$$
 Here, the basis vectors $\mathbf{r}_l$ are the columns of the PCA rotation matrix $R$. We can truncate 
 the latter expansion, using only the first $k$ PCs: $\mathbf{y}_i^{[k]} = \sum_{l=1}^k x_{il} \mathbf{r}_l.$
 We wish that for any $k$, this the reconstruction error $\Delta\mathbf{y}_i^{[k]}=\|\mathbf{y}_i^{[k]}-\mathbf{y}_i\|^2$ is minimal when 

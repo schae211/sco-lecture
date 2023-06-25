@@ -1,0 +1,230 @@
+---
+format: html
+---
+
+## Applied Mathematics in Biology: Single Cell Omics
+
+Lecture Notes
+
+Simon Anders, Univ. Heidelberg, 2023-06
+
+# Principal Curves
+
+One way of getting a pseudotime ordering of cells is the use of principal curves.
+This document provides a first look.
+
+### Example data
+
+The following code uses splines to construct a curve that will serve as example.
+
+We first set a number of control points:
+
+```{r}
+knots <- cbind(
+  x = c( 0.1, 1.0, 1.7, 2.5, 2.8, 2.4, 2.2, 3.2, 4.0, 5.2 ),
+  y = c( 1.0, 1.2, 1.7, 1.9, 1.5, 1.1, 0.2, 0.6, 1.1, 1.2 ) )
+
+plot( knots, type="b", asp=1 )
+```
+
+Next, we use these points as guides to get a smooth (continuous and differentiable)
+curve:
+
+```{r}
+spline_basis <- splines::bs( seq( 0, 1, l=1000), df=nrow(knots), intercept=TRUE )
+
+plot( knots, asp=1 )
+lines( spline_basis %*% knots, col="blue" )
+```
+We will (for now) skip over an explanation how the `bs` function works. (Interested
+readers may want to read up about [B-splines](https://en.wikipedia.org/wiki/B-spline).)
+
+Now we select random points along this curve (sampling the curve uniformly), and
+add some Gaussian noise to the 2D coordinates. 
+
+```{r}
+set.seed( 13245768 )
+t <- runif( 1000 )
+
+x <- splines::bs( t, df=nrow(knots), intercept=TRUE ) %*% knots +
+  matrix( rnorm( 2000, 0 , .1), ncol=2 )
+```
+
+This will be our data. We will use it instead of our usual PCA scores. Here's a
+plot of the data, with the original curve as dahsed line.
+
+```{r}
+plot( x, col="gray", asp=1 )
+lines( spline_basis %*% knots, col="blue", lty="dashed" )
+```
+
+Can we reconstruct teh curve from the data? Let's try, using the "princurve" package:
+
+```{r}
+prc <- princurve::principal_curve( x )
+```
+
+Here's the curve that we got (in brown):
+
+```{r}
+plot( x, col="gray", asp=1 )
+lines( prc$s[ prc$ord, ], col="brown" )
+lines( spline_basis %*% knots, col="blue", lty="dashed" )
+```
+
+The principal curve algorithm tries to find a curve $\mathbf{f}:[0,1]\rightarrow\mathbb{R}^n$
+
+- start with an initial guess $\mathbf{f}^{(0)}$ for the curve. The standard heuristic here is to perform a PCA 
+  on the data, and take a line through the origin, in the direction of the first PC, as $\mathbf{f}^{(0)}$.
+- Repeat until convergence, using $i$ as iteration counter, starting with $i=0$:   
+  - Extend the curve by linear extrapolation at both ends.
+  - Project each data point $\mathbf{x}_i$ onto the curve, i.e. find the argument $t$ for the curve point closest to the data point:
+    $$ t_k^{(i)} = \operatorname{arg min}_t \|\mathbf{x}_k - \mathbf{f}^{(i)}(t)\| $$
+    This gives us an ordering of the data points. 
+  - Fit a new curve $\mathbf{f}^{(i+1)}$ by regressting the $\mathbf{x}_k$ onto the $t_k^{(i)}$ using either spline regression
+    or local regression.
+    
+By default, `princurve` uses spline regression (as provided by the R basis function `stats::smooth.spline`). (Again, we
+unfortunately don't have the time to discuss spline regression.)
+
+To get a better result than what we just saw, we should increase the number of degrees of freedom for the splione smoother:
+
+```{r}
+prc <- princurve::principal_curve( x, df=10 )
+
+plot( x, col="gray", asp=1 )
+lines( prc$s[ prc$ord, ], col="brown" )
+lines( spline_basis %*% knots, col="blue", lty="dashed" )
+```
+    
+We can also switch to local regression (which we have discussed already):    
+
+```{r}
+prc <- princurve::principal_curve( x, smoother="lowess", f=.15 )
+
+plot( x, col="gray", asp=1 )
+lines( prc$s[ prc$ord, ], col="brown" )
+lines( spline_basis %*% knots, col="blue", lty="dashed" )
+```
+
+The argument `f` for the smoother here is the fraction of the points that should
+lie under the smoothing kernel, when selecting the adaptive bandwidth.
+
+We will next use the "slingshot package". If called with just a data matrix,
+the "slingshot" function simply calls `principal_curve`:
+
+```{r}
+suppressPackageStartupMessages(
+  library( slingshot ) )
+
+sl <- slingshot( x, df=10 )
+```
+
+We find the output of `principal_curve` somewhere inside the Slingshot object. It's the
+curve as before:
+
+```{r}
+plot( x, col="gray", asp=1 )
+lines( prc$s[ prc$ord, ], col="brown" )
+lines( sl@metadata$curves$Lineage1$s, col="green", lty="dashed" )
+lines( spline_basis %*% knots, col="blue", lty="dashed" )
+```
+
+### Branching
+
+Often, cells can differentiate not towards only one but to endpoints. Let's add
+a second curve that initially overlaps with the first but then deviates from it:
+
+```{r}
+knots2 <- cbind(
+  c( 0.1, 1.0, 1.7, 2.5, 2.8, 2.4, 2.1, 2.5, 2.4, 1.9 ),
+  c( 1.0, 1.2, 1.7, 1.9, 1.5, 1.1, 0.2, 0.0, -.3, -.9 ) )
+
+br <- as.integer( runif(1000) < .4 ) + 1
+
+x0 <- abind::abind(
+  splines::bs( t, df=nrow(knots), intercept=TRUE ) %*% knots +
+    matrix( rnorm( 2000, 0 , .1), ncol=2 ),
+  splines::bs( t, df=nrow(knots2), intercept=TRUE ) %*% knots2 +
+    matrix( rnorm( 2000, 0 , .1), ncol=2 ),
+  along=3 )
+
+x <- t( sapply( 1:length(t), function(i) x0[i,,br[i]] ) )
+colnames(x) <- c( "V1", "V2" )
+rm(x0)
+```
+
+Here is our new data:
+
+```{r}
+plot( x, col="gray", asp=1 )
+```
+
+To deal with branches, Slingshot requires a clustering. We use the same code as always:
+
+```{r}
+suppressPackageStartupMessages(
+  library( tidyverse ) )
+
+nn <- FNN::get.knn( x, 15 )
+edge_table <-
+  map_dfr( 2:ncol(nn$nn.index), function(i)
+    tibble( 
+      from = 1:nrow(nn$nn.index), 
+      to = nn$nn.index[,i] ) )
+nn_graph <- igraph::graph_from_edgelist( as.matrix(edge_table), directed=FALSE )
+set.seed( 13245768 )
+leiden <- igraph::cluster_leiden( nn_graph, objective_function="modularity" )
+
+plot( x, col=leiden$membership, asp=1 )
+cluster_means <- t( sapply( 1:max(leiden$membership), function(cl) colMeans( x[leiden$membership==cl,,drop=FALSE] ) ) )
+text( cluster_means[,1], cluster_means[,2], 1:nrow(cluster_means), col="brown", cex=1.7)
+text( cluster_means[,1]-.02, cluster_means[,2]+.02, 1:nrow(cluster_means), col="orange", cex=1.7)
+```
+
+In this clustering, the clusters are nested inside the branches. This allows slingshot
+to make understand the branches. We provide it with the clustering information:
+
+```{r}
+sl <- slingshot( x, leiden$membership, df=10 )
+```
+
+Slingshot now produces two curves:
+
+```{r}
+plot( x, col="gray", asp=1 )
+for( n in names(sl@metadata$curves) )
+  lines( sl@metadata$curves[[n]]$s, col="red" )
+```
+
+Each curve uses only data from the clusters for one graph, according to this tree
+that Slingshot has derived from the clustering:
+
+```{r}
+plot( sl@metadata$mst )
+```
+
+For each curve, we get a pseudotime:
+
+```{r}
+for( n in colnames( sl@assays@data$pseudotime ) ) {
+  print(
+    as_tibble(x) %>%
+    mutate( pt = sl@assays@data$pseudotime[,n] ) %>%
+    ggplot + geom_point( aes( x=V1, y=V2, col=pt ) ) +
+      coord_equal() + scale_color_viridis_c() +
+      ggtitle( n ) ) }
+```
+
+### References
+
+Principal curves have been introduced here:
+
+- T Hastie, W. Stuetzle (1989): *Principal curves*. 
+  Journal of the American Statistical Association, 84:502. [[Link]](https://doi.org/10.2307/2289936)
+  
+The Slingshot method and software have been presented here:
+
+- K Street, D Risso, RB Fletcher, D Das, J Ngai, N Yosef, E Purdom, S Dudoit (2018):
+  *Slingshot: cell lineage and pseudotime inference for single-cell transcriptomics*.
+  BMC Genomics 19:477. [[Link]](https://doi.org/10.1186/s12864-018-4772-0)
