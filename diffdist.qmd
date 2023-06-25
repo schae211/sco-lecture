@@ -2,13 +2,25 @@
 format: html
 ---
 
+## Applied Mathematics in Biology: Single Cell Omics
+
+Lecture Notes
+
+Simon Anders, Univ. Heidelberg, 2023-06
+
+## Diffusion Distances
+
+In order to be able to define pseudotime, one possibility is use so-called "Diffusion Maps", which we will explore here.
+
+### Example data
+
+In order to help us see what is going on, we will not work with real data this time, but instead with data in the 2D plane.
+
+The following code (which you do not need to understand to understand the rest) produces some example data
+
 ```{r}
 suppressPackageStartupMessages( library( tidyverse ) )
-```
 
-Here's the code to make our example data:
-
-```{r}
 set.seed( 13245768 )
 
 knots1 <- cbind(
@@ -16,46 +28,46 @@ knots1 <- cbind(
   c( 1.0, 1.2, 1.7, 1.9, 1.5, 1.1, 0.2, 0.6, 1.1, 1.2 ) )
 
 knots2 <- cbind(
-  c( 0.1, 1.0, 1.7, 2.5, 2.8, 2.4, 2.1, 2.5, 2.5, 2.6 ),
-  c( 1.0, 1.2, 1.7, 1.9, 1.5, 1.1, 0.2, 0.0, -.3, -.7 ) )
+  c( 0.1, 1.0, 1.7, 2.5, 2.8, 2.4, 2.1, 2.5, 2.4, 1.9 ),
+  c( 1.0, 1.2, 1.7, 1.9, 1.5, 1.1, 0.2, 0.0, -.3, -.9 ) )
 
 spline_basis <- splines::bs( seq( 0, 1, l=1000), df=nrow(knots1), intercept=TRUE )
 
+t <- runif( 1000 )
+br <- as.integer( runif(1000) < .4 ) + 1
+
 x0 <- abind::abind(
-  bs( t, df=nrow(knots1), intercept=TRUE ) %*% knots1 +
+  splines::bs( t, df=nrow(knots1), intercept=TRUE ) %*% knots1 +
     matrix( rnorm( 2000, 0 , .1), ncol=2 ),
-  bs( t, df=nrow(knots2), intercept=TRUE ) %*% knots2 +
+  splines::bs( t, df=nrow(knots2), intercept=TRUE ) %*% knots2 +
     matrix( rnorm( 2000, 0 , .1), ncol=2 ),
   along=3 )
 
 x <- t( sapply( 1:length(t), function(i) x0[i,,br[i]] ) )
 rm(x0)
+```
 
+Here is the data:
+
+```{r}
 plot( x, col=br, asp=1 )
 ```
 
+Our data is meant to imitate the case of a differentiation process, starting to the left and the proceeding either to the right ot to the bottom. The colours indicate the "cell fate", i.e., which differentiation target the cell aims at. Of course, we do not have access to this branch information; rather, we want to infer from the data which branch the cell is on (common left branch, right branch or bottom branch).
+
+Our aim is to find a distance measure, the measures "along" the curving manifold.
 
 ### A diffusion process
 
-Let's define a "random-walk" process as follows. A time step 0, we place a "token"
-on one cell which we call the "starting cell". In each time step, the token "hops"
-to another cell. The probability $p_{ij}$ that the token will hop from cell $i$ to cell $j$
-depends on the distance $d_{ij}$ between these cells, according to a normal kernel $k_{ij}$:
-$$p_{ij} \propto k_{ij} = e^{-d_{ij}^2/\sigma^2}.$$ 
+Let's define a "random-walk" process as follows. A time step 0, we place a "token" on one cell which we call the "starting cell". In each time step, the token "hops" to another cell. The probability $p_{ij}$ that the token will hop from cell $i$ to cell $j$ depends on the distance $d_{ij}$ between these cells, according to a normal kernel $k_{ij}$: $$p_{ij} \propto k_{ij} = e^{-d_{ij}^2/\sigma^2}.$$
 
-These probabilities have to be normalized, so that the probabilty that *something*
-happens (including that the tokens stays where it is) is 1. Therefore $\sum_j p_{ij}=1$.
+These probabilities have to be normalized, so that the probabilty that *something* happens (including that the tokens stays where it is) is 1. Therefore $\sum_j p_{ij}=1$.
 
-Thus we define normalization constants
-$$ z_i = \sum_{j}e^{-d_{ij}^2/\sigma^2} $$
-and use them to set
-$$ p_{ij} = \frac{ e^{-d_{ij}^2/\sigma^2} }{ z_i } $$
+Thus we define normalization constants $$ z_i = \sum_{j}k_{ij} $$ and use them to set $$ p_{ij} = \frac{ k_{ij} }{ z_i } $$
 
-Note that our initial "kernel matrix" $K$ is symmetric, while the row-normalization caused
-the "transition matrix" $P$ to lose this symmetry. 
+Note that our initial "kernel matrix" $K$ is symmetric, while the row-normalization caused the "transition matrix" $P$ to lose this symmetry.
 
-Let's make the kernel matrix $P$ (`km` in the code), the normalization vector $\mathbf{z}$ (`zv` in the code) 
-and the transition matrix $P$ (or `trm`). Let's chose $\sigma=.2$ for the kernel half-width.
+Let's make the kernel matrix $P$ (`km` in the code), the normalization vector $\mathbf{z}$ (`zv` in the code) and the transition matrix $P$ (or `trm`). Let's chose $\sigma=.2$ for the kernel half-width.
 
 ```{r}
 sigma <- .3
@@ -65,67 +77,56 @@ trm <- km / zv
 ```
 
 Let's pick a "start cell" $i$:
+
 ```{r}
-i <- 530
+i <- 612
 ```
 
-The $i$-th row of our transition matrix tells us for each cell $j$ the probability that the token
-will end up there if we put the token at cell $j$ and perform one transition (one "hop").
-Let's visualize these probabilities (and mark the start cell with a $\times$):
+The $i$-th row of our transition matrix tells us for each cell $j$ the probability that the token will end up there if we put the token at cell $j$ and perform one transition (one "hop"). Let's visualize these probabilities (and mark the start cell with a $\times$):
 
 ```{r}
 as_tibble( x ) %>%
-mutate( prob = trm[cell,] ) %>%
+mutate( prob = trm[i,] ) %>%
 ggplot( aes( x=V1, y=V2 ) ) + 
   geom_point( aes( col=prob ) ) +
-  geom_point( shape="cross", col="orange", data=as_tibble(x)[cell,,drop=FALSE] ) +
+  geom_point( shape="cross", col="orange", data=as_tibble(x)[i,,drop=FALSE] ) +
   coord_equal()
 ```
 
-As we can see, the token "diffuses" around the initial cell, according to the Gaussian
-kernel with the halfwidth $\sigma=.2$.
+As we can see, the token "diffuses" around the initial cell, according to the Gaussian kernel with the halfwidth $\sigma=.2$.
 
-We can also describe the initial state (token at cell $i$ with probability 1) as a 
-unit vecor with a 1 at component $i$ and 0s everywhere else, i.e., as the basis
-vector $\mathbf{e}_i$. Let's write $\mathbf{v}_0=\mathbf{e}_i$ for this initial state. 
+We can also describe the initial state (token at cell $i$ with probability 1) as a unit vecor with a 1 at component $i$ and 0s everywhere else, i.e., as the basis vector $\mathbf{e}_i$. Let's write $\mathbf{v}_0=\mathbf{e}_i$ for this initial state.
 
 ```{r}
 v0 <- rep( 0, nrow(trm) )
-v0[cell] <- 1
+v0[i] <- 1
 ```
 
-Then, we can get the probability vector by multiplying the matrix $P$ with $\mathbf{v}_0$
-from the left: $\mathbf{v}_1^\mathsf{T} = \mathbf{v}_0^\mathsf{T} P$.
+Then, we can get the probability vector by multiplying the matrix $P$ with $\mathbf{v}_0$ from the left: $\mathbf{v}_1^\mathsf{T} = \mathbf{v}_0^\mathsf{T} P$.
 
-```r
+``` r
 v0 %*% trm
 ```
 
 This gives the same result as looking at the $i$th matrix column.
 
-More generally, if we have vector $\mathbf{v}$ that describes a probability distribution
-for the token's place across the cells, we can calculate athe change in distribution
-due to a step by $\mathbf{v}'^\mathsf{T}=\mathbf{v}^\mathsf{T}P$. Note that the elemenets of
-$\mathbf{v}$ sum to 1 (because it is a probability vector), and $P$ preserves this property.
-This is because $P$'s column's sum to 1, and makes $P$ a "left-stochastic" matrix.
+More generally, if we have vector $\mathbf{v}$ that describes a probability distribution for the token's place across the cells, we can calculate athe change in distribution due to a step by $\mathbf{v}'^\mathsf{T}=\mathbf{v}^\mathsf{T}P$. Note that the elemenets of $\mathbf{v}$ sum to 1 (because it is a probability vector), and $P$ preserves this property. This is because $P$'s column's sum to 1, and makes $P$ a "left-stochastic" matrix.
 
-Now, we see how to simulate two two susequent transitions, namely by right-multiplying the matrix twice to the vector:
-$\mathbf{v}_2^\mathsf{T}=\mathbf{v}_0^\mathsf{T}PP=\mathbf{v}_0^\mathsf{T}P^2$, or, in code:
+Now, we see how to simulate two two susequent transitions, namely by right-multiplying the matrix twice to the vector: $\mathbf{v}_2^\mathsf{T}=\mathbf{v}_0^\mathsf{T}PP=\mathbf{v}_0^\mathsf{T}P^2$, or, in code:
 
-```r
+``` r
 v0 %*% trm %*% trm
 ```
 
-To get the vector after $t$ steps, we use $v_t^\mathsf{T} = v_0^\mathsf{T} P^t$, 
-where $P^t$ is the transition matrix $P$ taken to the $t$-th power.
+To get the vector after $t$ steps, we use $v_t^\mathsf{T} = v_0^\mathsf{T} P^t$, where $P^t$ is the transition matrix $P$ taken to the $t$-th power.
 
 Let's try this, performing the repeated vector-matrix multiplication by a for loop:
 
 ```{r}
 v <- v0
-for( i in 0:100 ) {
+for( i in 0:300 ) {
   
-  if( i %in% c( 0, 1, 2, 3, 5, 10, 20, 30, 50, 100 ) ) 
+  if( i %in% c( 0, 1, 2, 3, 5, 10, 20, 30, 50, 100, 300 ) ) 
     print(
       as_tibble( x ) %>%
       mutate( prob = drop(v) ) %>%
@@ -138,19 +139,13 @@ for( i in 0:100 ) {
 }  
 ```
 
-The stochastic process described by our repeated matrix application is called a "random walk" or
-sometimes as "diffusion process" (even though, technically, that term describes the limit of making the steps
-infinitely small and numerous, to get "continuous" rather than stepwise transitions). Each step only depends
-on the current vecttor, not on its past. This is called the Markov property, and the sequence of vectors
-is called a Markov chain.
+The stochastic process described by our repeated matrix application is called a "random walk" or sometimes as "diffusion process" (even though, technically, that term describes the limit of making the steps infinitely small and numerous, to get "continuous" rather than stepwise transitions). Each step only depends on the current vecttor, not on its past. This is called the Markov property, and the sequence of vectors is called a Markov chain.
 
-We notice: 
+We notice:
 
-- Initially, the transitions initally explore the manifold, creeping along their length. As we will see soon, 
-we can use this to define a distance that measures "along" the manifold, following its
-bends and curves, and which is therefore suitable to define a pseudotime.
+-   Initially, the transitions initally explore the manifold, creeping along their length. As we will see soon, we can use this to define a distance that measures "along" the manifold, following its bends and curves, and which is therefore suitable to define a pseudotime.
 
-- After a while, we converge to a staionary distribution, with weight where the points are densest. 
+-   After a while, we converge to a staionary distribution, with weight where the points are densest.
 
 #### Stationary distribution
 
@@ -171,115 +166,83 @@ ggplot( aes( x=V1, y=V2 ) ) +
   coord_equal() 
 ```
 
-Interestingly, this limiting distribution does not depend on where we start, as can be seen by 
-trying different starting cells. Intuitively, we
-can see that as the distribution spreads out, we lose the information on where we started and hence,
-it cannot matter. (This is only true, because we can get from any cell to any other cell with non-zero
-probability.)
+Interestingly, this limiting distribution does not depend on where we start, as can be seen by trying different starting cells. Intuitively, we can see that as the distribution spreads out, we lose the information on where we started and hence, it cannot matter. (This is only true, because we can get from any cell to any other cell with non-zero probability.)
 
-The mathematical theory of Markov chains clarifies when a Markov chain has a such a limiting 
-(or: stationary) distribution, and when it is unique and reachable from any starting state. 
-One can show that this is the case here, because of the nature of our kernel, and because
-every cell can be reached from every other cell.
+The mathematical theory of Markov chains clarifies when a Markov chain has a such a limiting (or: stationary) distribution, and when it is unique and reachable from any starting state. One can show that this is the case here, because of the nature of our kernel, and because every cell can be reached from every other cell.
 
-The limiting distribution is a fix-point of the repeated application of $P$, and therefor
-should satisfy: $\mathbf{v}_\infty^\mathsf{T}P = \mathbf{v}_\infty^\mathsf{T}$. 
+The limiting distribution is a fix-point of the repeated application of $P$, and therefor should satisfy: $\pmb{\pi}^\mathsf{T}P = \pmb{\pi}^\mathsf{T}$.
 
 Interestingly, our normalization vector $\mathbf{z}$ (see above) fulfils the fixpoint equation:
 
-$$\left( \mathbf{z}^\mathsf{T}P \right)_i = \sum_j z_i p_{ij} = \sum_j z_i\frac{k_{ij}}{z_i}=\sum_j k_{ij}=z_i,$$
-and, therefore, $\mathbf{z}^\mathsf{T}P=\mathbf{z}^\mathsf{T}$. Let's see if the vector $\mathbf{v}_0^\mathsf{T}P^{10000}$ that we
-have just calculated is close to $\mathbf{z}$:
+$$\left( \mathbf{z}^\mathsf{T}P \right)_i = \sum_j z_i p_{ij} = \sum_j z_i\frac{k_{ij}}{z_i}=\sum_j k_{ij}=z_i,$$ and, therefore, $\mathbf{z}^\mathsf{T}P=\mathbf{z}^\mathsf{T}$. Thus, the staionary distribution of our Markov chain is given by $\mathbf{z}$, which, however, we still need to divide by the sum of its elements (its L1 norm) to make it a normalized probability vector: $$\pmb{\pi} = \frac{\mathbf{z}}{\|\mathbf{z}\|_1}$$
+
+Let's see if the vector $\mathbf{v}_0^\mathsf{T}P^{10000}$ that we have just calculated is close to $\mathbf{z}$:
+
 ```{r}
 plot( zv, v )
 ```
 
-Hence:
-$$ \mathbf{v}_\infty=\frac{\mathbf{z}}{\sum_i z_i}$$
-Let's store nromalized `zv` as `zn`:
+Hence: $$ \pmb{\pi}=\frac{\mathbf{z}}{\sum_i z_i}$$ Let's store normalized `zv` as `zn`, i.e., the vector $\pmb{pi}$ will be called `zn` in code:
 
 ```{r}
 zn <- zv / sum(zv)
 ```
 
-Note that $\mathbf{z}$ (or $\mathbf{v}_\infty$) if a left eigenvector of $P$ to eigenvalue 1. The claim
-(made above) that the stationary distribution is unique implies that the eigenvalue 1 has 
-geometric multiplicity 1 (i.e., a one-dimensional eigenspace). It is also straight-forward to show
-this eigenvalue is the largest eigenvalue (in absolute value), because the eigenradius of a stochastic
-matrix is bounded by 1.
+
+
+Note that $\mathbf{z}$ (or $\pmb{\pi}$) if a left eigenvector of $P$ to eigenvalue 1. The claim (made above) that the stationary distribution is unique implies that the eigenvalue 1 has geometric multiplicity 1 (i.e., a one-dimensional eigenspace). It is also straight-forward to show this eigenvalue is the largest eigenvalue (in absolute value), because the eigenradius of a stochastic matrix is bounded by 1.
 
 Let's quickly check this by looking at the left eigensystem of $P$:
 
 ```{r}
-eig <- eigen( t(trm) )
+eigl <- eigen( t(trm) )
 ```
 
 In fact, the largest eigenvalue is 1:
 
 ```{r}
-head( eig$values )
+head( eigl$values )
 ```
 
-As a side note: `eigen` has reported the eigensystem in complex numbers, but all imaginary components of the 
-eigenvalues are zero:
+As a side note: `eigen` has reported the eigensystem in complex numbers, but all imaginary components of the eigenvalues are zero:
 
 ```{r}
-max( abs( Im( eig$values ) ) )
+max( abs( Im( eigl$values ) ) )
 ```
 
-For the eigenvectors, we better look at the arguments (complex phases) to see that
-they are all real:
+For the eigenvectors, we better look at the arguments (complex phases) to see that they are all real:
 
 ```{r}
-hist( atan2( Im(eig$values), Re(eig$vectors) ), 100 )
+hist( atan2( Im(eigl$values), Re(eigl$vectors) ), 100 )
 ```
 
-Now, back to the stationary distribution. Let's check whether the eigenvector corresponding to eigenvalue 1 
-is (up to nromalization) identical to $\mathbf{z}$:
+Now, back to the stationary distribution. Let's check whether the eigenvector corresponding to eigenvalue 1 is (up to nromalization) identical to $\mathbf{z}$:
 
 ```{r}
-plot( zn, Re(eig$vectors[,1]) )
+plot( zn, Re(eigl$vectors[,1]) )
 ```
+
 (Remember that eigenvectors are usually normalized by L2 norm, while our `zn` has unit L1 norm.)
 
 ### Diffusion distances
 
-How can we use our MArkov chains to define a distance?
+How can we use our Markov chains to define a distance?
 
-We could ask how many hops one need to get from cell $i$ to cell $j$, but this is 
-hard to turn into a good defintion?
+We could ask how many hops one need to get from cell $i$ to cell $j$, but this is hard to turn into a good defintion.
 
-Therefore, Coifman and Lafon suggested the following: Let's start two Markov chains,
-one from each cells, run them for a fixed number $t$ of steps, and then compare 
-the *overlap* of the two distributions. The distance between the two distributions
-is the "diffusion distance" between the two cells.
+Therefore, Coifman and Lafon suggested the following: Let's start two Markov chains, one from each cells, run them for a fixed number $t$ of steps, and then compare the *overlap* of the two distributions. The distance between the two distributions is the "diffusion distance" between the two cells.
 
-Let's write $\mathbf{y}_{i,t}^\mathsf{T}=\mathbf{e}_i^\mathsf{T}P^t$ and 
-$\mathbf{y}_{j,t}^\mathsf{T}=\mathbf{e}_j^\mathsf{T}P^t$ for the distributions thus obtained.
-Note that $y_{ik,t}$, the $k$-th component of $\mathbf{y}_{i,t}$ and the probability
-of getting from cell $i$ to cell $k$ in $t$ steps, is element $ik$ of $P^t$.
+Let's write $\mathbf{y}_{i,t}^\mathsf{T}=\mathbf{e}_i^\mathsf{T}P^t$ and $\mathbf{y}_{j,t}^\mathsf{T}=\mathbf{e}_j^\mathsf{T}P^t$ for the distributions thus obtained. Note that $y_{ik,t}$, the $k$-th component of $\mathbf{y}_{i,t}$ and the probability of getting from cell $i$ to cell $k$ in $t$ steps, is element $ik$ of $P^t$.
 
-We might simply take
+We might simply take 
 $$ \| \mathbf{y}_{j,t} - \mathbf{y}_{j,t} \|^2 = \sum_l \left( (P^t)_{il} - (P^t)_{jl} \right)^2$$
-as the squared diffusion distance between $i$ and $j$. It turns out to be useful, however, to
-weight the components $\left( (P^t)_{il} - (P^t)_{jl} \right)$  of the some by comparing
-teh squared differences with the probability of cell $l$ in the stationary distribution. We
-therefore define
-$$ d_{ij,t}^2 = \sum_l \frac{\left( (P^t)_{il} - (P^t)_{jl} \right)^2}{v_{l,\infty}},$$
-where $v_{l,\infty}$ is the $l$-th component of $\mathbf{v}_\infty$ (the stationary distribution
-obtained by normalizing the kernel row sum vector $\mathbf{z}$). This takes into account that 
-a differnce at some cell $l$ should be compared on the scale of that cell's overall probability
-of being reached.
-
-I could not, however, find a good explanation wht the denominator is not squared, like the
-numerator. However, without the square, we do get better results, as we will see.
+as the squared diffusion distance between $i$ and $j$. It turns out to be useful, however, to weight the components $\left( (P^t)_{il} - (P^t)_{jl} \right)$ of the sum by comparing the squared differences with the probability of cell $l$ in the stationary distribution. We therefore define 
+$$ d_{ij,t}^2 = \sum_l \frac{\left( (P^t)_{il} - (P^t)_{jl} \right)^2}{\pi_l},$$
+where $\pi_l$ is the $l$-th component of $\pmb\pi$ (the stationary distribution obtained by normalizing the kernel row sum vector $\mathbf{z}$). This takes into account that a difference at some cell $l$ should be compared on the scale of that cell's overall probability of being reached.
 
 To get a matrix of distances from every cell to every cell, let's define a matrix $Q_t$ with element
 
-$$ q_{ij,t} = \frac{(P^t)_{ij}}{\sqrt{v_{j,\infty}}},$$
-so that we can write, using $mathbf{q}_{i,t}$ for the $i$-th column of $Q_t$:
-$$ d_{ij,t} = \| \mathbf{q}_{i,t} - \mathbf{q}_{j,t}\|.$$
-Let's get $Q_10$ by first finding $P^{10}$ via repeated matrix multiplication and then dividing by $\mathbf{v}_{j,\infty}$:
+$$ q_{ij,t} = \frac{(P^t)_{ij}}{\sqrt{\pi_j}},$$ so that we can write, using $mathbf{q}_{i,t}$ for the $i$-th column of $Q_t$: $$ d_{ij,t} = \| \mathbf{q}_{i,t} - \mathbf{q}_{j,t}\|.$$ Let's get $Q_10$ by first finding $P^{10}$ via repeated matrix multiplication and then dividing by $\pi_j$:
 
 ```{r}
 trm10 <- diag( nrow=nrow(trm) )  # identity matrix
@@ -288,18 +251,17 @@ for( i in 1:10 )
 q10 <- t( t(trm10) / sqrt(zn) )
 ```
 
-Now, we can get our diffusion distance matrix $D_t$ (containing the distances of all pairs of cells) by getting the
-EUclidean distances of all pairs of column vectors of $Q_t$:
+Now, we can get our diffusion distance matrix $D_t$ (containing the distances of all pairs of cells) by getting the Euclidean distances of all pairs of column vectors of $Q_t$:
 
 ```{r}
 d10 <- as.matrix( dist( q10 ) )
 ```
 
-Here are the diffusion distances from our original starting cell, cell r`cell`, to all other cells:
+Here are the diffusion distances from our original starting cell, cell `i`, to all other cells:
 
 ```{r}
 as_tibble( x ) %>%
-mutate( dist = d10[cell,] ) %>%
+mutate( dist = d10[i,] ) %>%
 ggplot( aes( x=V1, y=V2 ) ) + 
   geom_point( aes( col=dist ) ) +
   coord_equal() +
@@ -308,11 +270,10 @@ ggplot( aes( x=V1, y=V2 ) ) +
 
 #### Distances to end cells and pseudotime
 
-For our next trick, we need to cells at the "ends" of the manifold. We find the
-right-hand end cell by taking the cell farthest from our starting cell:
+For our next trick, we need to cells at the "ends" of the manifold. We find the right-hand end cell by taking the cell farthest from our starting cell:
 
 ```{r}
-end_cell <- which.max( d10[cell,] )
+end_cell <- which.max( d10[i,] )
 ```
 
 Here's the distances from this "end cell":
@@ -326,10 +287,13 @@ ggplot( aes( x=V1, y=V2 ) ) +
   scale_color_viridis_c()
 ```
 
-Let's take the cell farthest from the "end cell" and call it the "start cell":
+Let's take the cell farthest from the "end cell" and call it the "start cell". To make sure that we get the left branch, let's only use cells with `x[2]>.5`:
 
 ```{r}
-start_cell <- which.max( d10[end_cell,] )
+o <- order( d10[end_cell,], decreasing=TRUE ) 
+start_cell <- o[which(x[o,2]>.5)[1]]
+
+x[start_cell,]
 ```
 
 Now, let's make a scatter plot, showing the distances of each cell to start and end cell:
@@ -340,15 +304,14 @@ plot(
   d10[ end_cell, ],
   asp = 1,
   xlab="distance to start cell", ylab = "distance to end cell",
-  main = "Diffusion distance at t=10"
+  main = "Diffusion distance at t=10", cex=.3
 )
 ```
+
 We observe:
 
-- the "side branch" sticks out, allowing us to say for each cell whether it is on
-the "start branch", the "end branch" or the "side branch".
-- The cells have been brought into a clear order that should allow us to define a 
-"pseudotime" from start to end cell, by projecting onto the antidiagonal:
+-   the "side branch" sticks out, allowing us to say for each cell whether it is on the "start branch", the "end branch" or the "side branch".
+-   The cells have been brought into a clear order that should allow us to define a "pseudotime" for the two main branches, going from start to end cell, by projecting onto the antidiagonal:
 
 ```{r}
 as_tibble( x ) %>%
@@ -359,12 +322,9 @@ ggplot( aes( x=V1, y=V2 ) ) +
   scale_color_viridis_c()
 ```
 
-However, the pseudotime has bad resolution in the middle
-
 ### Trying different diffusion times
 
-Maybe, using $t=10$ was not an optimal choice? Let's remake the scatter plot, but using different
-diffusion times:
+Maybe, using $t=10$ was not an optimal choice? Let's remake the scatter plot, but using different diffusion times:
 
 ```{r}
 trmt <- diag( nrow=nrow(trm) )
@@ -384,82 +344,379 @@ for( t in 0:100 ) {
 names(dl) <- as.character(time_steps)
 map_dfr( dl, .id="diff_time", ~ { rownames(.) <- c("ds","de"); as_tibble(t(.))} ) %>%
 mutate( diff_time = fct_inorder(diff_time) ) %>%
+mutate( branch = factor( rep( br, length(time_steps) ) ) ) %>%  
 ggplot +
-  geom_point( aes( x=ds, y=de ), size=.2 ) +
+  geom_point( aes( x=ds, y=de, col=branch ), size=.2 ) +
   facet_wrap( ~diff_time, scales="free" ) 
 ```
 
+### Matrix power via eigendecomposition
 
-### Calculate transition matrix powers with eigenvalues
+We have spent quite some time waiting for the repeated vector-matrix multiplications. Using an eigendecomposition can speed this up drastically. However, as $P$ is not symmetric, it pays to go a detour:
 
-We have spend a lot of time waiting for R to calculate $P^t$. We can speed this
-up by using the eigendecomposition, that we have calculated above.
+In the beginning, we went from the kernel matrix $K$ to the transition matrix $P$ by dividing each row of $K$ by its row sums. We called the vector of these row sums $\mathbf{z}$. Later, we normalized $\mathbf{z}$ to make it stochastic, to get $\pmb{\pi} = \mathbf{z}/\|\mathbf{z}\|_1$, which also turned out to be the Markov chain's limiting ditribution and the first eigenvector of $P^\mathsf{T}$.
 
-After all, with the eigendecomposition $P=U\Lambda U^\mathsf{T}$, we have
-$$ P^t = U\Lambda U^\mathsf{T}U\Lambda U^\mathsf{T}\dots U\Lambda U^\mathsf{T} = U\Lambda^t U^\mathsf{t},$$
-and $\Lambda^t$ is quickly calculated. 
+Let's write $\zeta=\|\mathbf{z}\|_1$ for the normalization constant and $\Pi=\operatorname{diag} \pmb{\pi}$ for the diagonal matrix formed from $\pmb{\pi}$. Then, we can write the row-normalisation of the kernel matrix as 
+$$ P = \frac{1}{\zeta}\Pi^{-1} K$$.
+
+Now, let us re-symmetrize this matrix by shifting the root of $\Pi$ to the other side: 
+$$ S = \frac{1}{\zeta}\,\Pi^{-\frac{1}{2}}\,K\,\Pi^{-\frac{1}{2}} = \Pi^{\frac{1}{2}}\,P\,\Pi^{-\frac{1}{2}} $$
+
+As $S$ is now symmetric, it can be diagonalized 
+$$ S = U\Lambda U^\mathsf{T} $$
+and therefore 
+$$ P = \Pi^{-\frac{1}{2}}\,S\,\Pi^{\frac{1}{2}} = \Pi^{-\frac{1}{2}}\,U\Lambda U^\mathsf{T}\,\Pi^{\frac{1}{2}}. $$
+Now, we can see how we can easily get powers of the transition matrix: 
+$$ P^t = \Pi^{-\frac{1}{2}}U\Lambda U^\mathsf{T}\Pi^{\frac{1}{2}}\,\Pi^{-\frac{1}{2}}U\Lambda U^\mathsf{T}\Pi^{\frac{1}{2}}\dots \Pi^{-\frac{1}{2}}U\Lambda U^\mathsf{T}\Pi^{\frac{1}{2}} = \Pi^{-\frac{1}{2}}U\,\Lambda^t\, U^\mathsf{T}\,\Pi^{\frac{1}{2}}.$$ 
+
+We introduce $\Psi=\Pi^{-\frac{1}{2}}U$ and $\Phi=\Pi^{\frac{1}{2}}U$. Note the $\Psi$ is $U$, which each row $i$ divided by $\pi_i$.
+
+With this we can write 
+$$ P^t = \Psi\Lambda^t\Phi^\mathsf{T}.$$ 
+
+Let's try this out.
+
+First, get $S = \left(\zeta\,\Pi\right)^{-\frac{1}{2}}\, K\, \left(\zeta\,\Pi\right)^{-\frac{1}{2}}$
 
 ```{r}
-do.call( bind_cols, ptl ) %>%
-rename_all( ~ as.character(time_steps) ) %>%
-bind_cols( as_tibble(x) ) %>%
-pivot_longer( -starts_with("V"), names_to="diff_time", values_to="pseudotime" ) %>%
-mutate( diff_time = fct_inorder( diff_time ) ) %>%
-ggplot() +
-  geom_point( aes( x=V1, y=V2, ))
+sm <- t( km / sqrt(zv) ) / sqrt(zv)
+```
 
+Now, get $S=U \Lambda U^\mathsf{T}$:
+
+```{r}
+eigs <- eigen( sm,  )
+```
+
+Now, `eigs$values` is $\Lambda$ and `eigs$vectors` is $U$.
+
+Now, get $\Psi=\Pi^{-\frac{1}{2}}U$ and $\Phi=\Pi^{\frac{1}{2}}U$:
+
+```{r}
+psi <- eigs$vectors / sqrt(zn)
+phi <- eigs$vectors * sqrt(zn)
+```
+
+Let's calculate $\Psi\Lambda^{10}\Psi$
+
+```{r}
+( psi %*% diag( eigs$values^10 ) %*% t(phi) )[ 1:5, 1:5 ]
+```
+
+and compare with $P^{10}$ as calculated earlier by explicit matrix multiplication:
+
+```{r}
+trm10[ 1:5, 1:5 ]
+```
+
+The two matrices are identical.
+
+```{r}
+max( abs( ( psi %*% diag( eigs$values^10 ) %*% t(phi)  -  trm10 ) ) )
+```
+
+Now, let's have a look at the middle term, $\Lambda^{10}$. Here are the 10th powers
+of the eigenvalues:
+
+```{r}
+plot( eigs$values^10 )
+```
+
+Clearly, there is no need to use all eigenvalues. The first 13 are quite sufficient to get a good
+approximation:
+
+```{r}
+max( abs( 
+  psi[,1:13] %*% diag( eigs$values[1:13]^10 ) %*% t(phi[,1:13]) -
+    trm10 ) )
+```
+
+Therefore, there is no need to calculate the full eigenspectrum. This is important
+to keep calculation of diffusion distances feasible for large eigenvalues.
+
+### Diffusion components
+
+To get $\mathbf{y}_{i,t}$, the probability distribution of a diffusion for $t$
+time steps, starting at cell $i$, we can now write:
+$$\mathbf{y}_{i,t}^\mathsf{T} = \mathbf{e}_i^\mathsf{T}P^t = \mathbf{e}_i^\mathsf{T} \Psi\Lambda^t\Phi^\mathsf{T}=\mathbf{w}_{i,t}^\mathsf{T}\Phi^\mathsf{T}$$
+Here, we have introduced
+$$ \mathbf{w}_{i,t}^\mathsf{T} = \Lambda^t \Psi^\mathsf{T}\mathbf{e}_i\quad \text{ with } w_{il,t} =\lambda_l^t\psi_{il},$$
+Here are the components of vector $\mathbf{w}_{i,t}$ for cell $i=17$ and $t=10$:
+```{r}
+plot( 1:1000, eigs$values^10 * psi[17,], xlab="diffusion component" )
+```
+
+Clearly, the components of this vector fall of very rapidly, due to the high power of the eigenvalues. 
+The vectors $\mathbf{w}){i,t}$ live in a space that is formally $n$-dimensional, but only the first
+few dimensions are important.
+
+Let's write $W_t$ for the matrix formed by these vectors: $W_t=\Psi\Lambda^t$
+
+Hence, calculating the distance between two vectors $\|\mathbf{w}_{i,t}-\mathbf{w}_{i,t}\|$ requires
+to sum only over the first few components. We will now see that $\|\mathbf{w}_{i,t}-\mathbf{w}_{i,t}\|$
+is exactly the diffusion distance $d_{ij,t}$ that we have defined earlier.
+
+According to our definition from earlier:
+
+$$ d_{ij,t}^2 = \sum_k\frac{1}{\pi_k}\left( y_{ik,t} - y_{jk,t}\right)^2 = \sum_k\left( \frac{y_{ik,t}}{\sqrt{\pi_k}} - \frac{y_{jk,t}}{\sqrt{\pi_k}} \right)^2 = \left( q_{ik,t} - q_{jk,t}\right)^2 $$
+Earlier, we formed the matrix $Q$ from these elements: $q_{ij,t} = y_{ij,t}/\sqrt{\pi_j}$. We can write this also as $Q=P^t\Pi^{-\frac{1}{2}}$. We
+get
+$$ Q_t = P^t\Pi^{-\frac{1}{2}} = \Psi \Lambda^t \Phi^\mathsf{T} \Pi^{-\frac{1}{2}} = \Psi \Lambda^t U^\mathsf{T} \Pi^{\frac{1}{2}} \Pi^{-\frac{1}{2}} = 
+W_t U^\mathsf{T}$$
+We see that the row vectors of $Q_t$ and $W_t$ are related by a rotation via $U$. Therefore, the lengths of row vectors or their differences are the same in $W_t$ and $Q_t$.
+
+### Summary
+
+We summarize: We can arrive at diffusion distances in two ways:
+
+1. We calculate the $t$-th power of the transition matrix $P$ and then take differences between the rows of $P^t$, weighting
+each component $j$ with $1/\sqrt{\pi_j}$.
+
+2. We use the eigensystem of $S$.
+
+The latter is much faster. We go through it once more step by step.
+
+Calculate the symmetrized transition matrix $S=\frac{1}{\zeta}\,\Pi^{-\frac{1}{2}}\,K\,\Pi^{-\frac{1}{2}}$ 
+and get its eigendecomposition $S = U\Lambda U^\mathsf{T}$. We only need a truncated eigensystem, so
+we use IRLBA this time
+
+```{r}
+sm <- t( km / sqrt(zv) ) / sqrt(zv)
+eigs <- irlba::partial_eigen( sm, 15, symmetric=TRUE )
+```
+
+Scale the eigenvectors to get $\Psi=\Pi^{-\frac{1}{2}}U$
+
+```{r}
+psi <- eigs$vectors / sqrt(zn)
+```
+
+Now, calculate the matrix of eigencomponents $W_t=\Psi\Lambda^t$ for, say, $t=10$:
+
+```{r}
+wm <- t( t(psi) * eigs$values^10 )
+
+head(wm)
+```
+
+Now, we can calculate the $t=10$ diffusion distance of any pair $i$, $j$ of cells
+by simply taking the Euclidean distances between the (short) rows of this matrix:
+
+```{r}
+sqrt(sum( ( wm[17,] - wm[133,] )^2 ))
+```
+
+Compare with our previous, much slower, calculation:
+
+```{r}
+d10[17,133]
+```
+
+Here's a function that gets the diffusion components from the initial kernel matrix
+
+```{r}
+diffusion_comps <- function( km, t ) {
+    zv <- rowSums(km)
+    sm <- t( km / sqrt(zv) ) / sqrt(zv)
+    eigs <- irlba::partial_eigen( sm, 15, symmetric=TRUE )
+    psi <- eigs$vectors / sqrt(zn)
+    wm <- t( t(psi) * eigs$values^t )
+    return( wm )
+}
+```
+
+Test it:
+
+```{r}
+wm <- diffusion_comps( km, 10 )
+sqrt(sum( ( wm[17,] - wm[133,] )^2 ))
+```
+
+### Branched pseudotime
+
+We had three branches in our data:
+
+```{r}
+plot( x, asp=1 )
+```
+
+Let's find the end points systematically.
+
+First, our diffusion components, and a function to get the distances of a given
+cell to all cells:
+
+```{r}
+wm <- diffusion_comps( km, 10 )
+
+dists_to_cell <- function( i, wm )
+  sqrt( rowSums( t( t(wm) - wm[i,] )^2 ) )
+```
+
+Start with a random cell (cell 100) and calculate the distances to all other cells
+
+```{r}
+end_cell <- rep( NA_integer_, 3 )
+
+end_cell[1] <- which.max( dists_to_cell( 100, wm ) )
+```
+
+Get the cell with the largest distance to that cell:
+
+```{r}
+end_cell[2] <- which.max( dists_to_cell( end_cell[1], wm ) )
+```
+
+Now we can see the branches:
+```{r}
+plot(
+  dists_to_cell( end_cell[1], wm ),
+  dists_to_cell( end_cell[2], wm ), asp=1 )
+```
+
+Find the third end cell as the one farthest from both end cells.
+
+```{r}
+end_cell[3] <- which.max( 
+  dists_to_cell( end_cell[1], wm ) + dists_to_cell( end_cell[2], wm ) )
+```
+
+These are our end cells:
+
+```{r}
+plot( x, asp=1, col="gray" )
+for( i in 1:3 )
+  text( x[end_cell[i],1], x[end_cell[i],2], i )
+```
+
+Now let's define two pseudotimes, from 3 to 1 and from 3 to 2:
+
+```{r}
+ptA <- dists_to_cell( end_cell[3], wm ) - dists_to_cell( end_cell[1], wm )
+ptB <- dists_to_cell( end_cell[3], wm ) - dists_to_cell( end_cell[2], wm )
+```
+
+Pseudotime A:
+
+```{r}
+as_tibble(x) %>% mutate( pt = ptA ) %>% 
+  ggplot + geom_point(aes( V1, V2, col=pt )) + coord_equal() + scale_color_viridis_c()
+```
+Pseudotime B:
+
+```{r}
+as_tibble(x) %>% mutate( pt = ptB ) %>% 
+  ggplot + geom_point(aes( V1, V2, col=pt )) + coord_equal() + scale_color_viridis_c()
+```
+
+Now, we can work with these:
+
+```{r}
+plot( ptA, ptB, asp=1 )
+```
+
+### Using nearest neighbors 
+
+Our kernel matrix is a dense matrix. Generating it has quadratic time complexity.
+However, we can approximate it with using nearest neighbor search:
+
+```{r}
+nn <- FNN::get.knn( x, 20 )
+```
+
+We pivot this into a long tibble:
+
+```{r}
+map_dfr( 1:ncol(nn$nn.index), function(i)
+  tibble(
+    cell1 = 1:nrow(nn$nn.index),
+    cell2 = nn$nn.index[,i],
+    dist = nn$nn.dist[,i]
+  ) ) %>%
+filter( cell1 < cell2) -> nn_tbl
+```
+
+We have filtered to have each edge only once.
+
+Now, let's assemble our kernel matrix.
+
+```{r}
+km <- with( nn_tbl, 
+   sparseMatrix( 
+     i = cell1, 
+     j = cell2, 
+     x = exp( -dist^2/sigma^2 ),
+     dims = rep( nrow(x), 2 ) ) )
+```
+
+So, far, `km` is traiangular. We need to add the other triangle, and also the diagonal
+(which has 1s):
+
+```{r}
+km <- km + t(km)
+diag(km) <- 1
+```
+
+Now, let's get the diffusion components, again for $t=10$:
+
+```{r}
+wm2 <- diffusion_comps( km, 10 )
+```
+
+and recalculate bthe pseudotimes
+
+```{r}
+ptA2 <- dists_to_cell( end_cell[3], wm2 ) - dists_to_cell( end_cell[1], wm2 )
+ptB2 <- dists_to_cell( end_cell[3], wm2 ) - dists_to_cell( end_cell[2], wm2 )
+```
+
+Here are they:
+
+```{r}
+plot( ptA2, ptB2, asp=1 )
+```
+
+They are a bit different from the earlier ones:
+
+```{r}
+plot( ptA, ptA2, asp=1 )
+```
+
+### Adaptive bandwidth
+
+Commonly, the kernel bandwidth $\sigma$ is adapted such that it is the distance to
+the $k$-th neighbor. Let's try this
+
+```{r}
+sigma_adp <- nn$nn.dist[,10]
+
+km_adp <- with( nn_tbl, 
+   sparseMatrix( 
+     i = cell1, 
+     j = cell2, 
+     x = exp( -dist^2 / ( ( sigma_adp[cell1]^2 + sigma_adp[cell2]^2 )/2 ) ),
+     dims = rep( nrow(x), 2 ) ) )
+
+km_adp <- km_adp + t(km_adp)
+diag(km_adp) <- 1
 ```
 
 ```{r}
-limit_dist <- Re(eig$vectors[,1])
-limit_dist <- limit_dist / sum(limit_dist)
-
-as_tibble( x ) %>%
-mutate( prob = limit_dist ) %>%
-ggplot( aes( x=V1, y=V2 ) ) + 
-  geom_point( aes( col=prob ) ) +
-  coord_equal() 
-```
-
-In the following, we will write $\mathbf{v}_\infty$ to indicate this vector: 
-$\mathbf{v}_\infty = \lim_{t\to \infty} v_\mathbf{0}^\mathsf{T}P^t$ (for (nearly) arbitrary $v_\mathbf{0}$),
-and $\mathbf{v}_\infty$ is the eigenvector of $P^\mathsf{T}$ corresponding to its largest eigenvalue 1.
-
-### Diffusion distance
-
-```{r}
-start_cell <- which.min(x[,1])
-end_cell <- which.max(x[,1])
-```
-
-The "original" diffusion distance, as suggested by Coifman and Lafon, fixes the number of steps. Let's use
-$t=50 $steps and ask: starting at each cell, what it the probability distribution after 50 steps? To get $\mathbf{e}_i^\mathsf{T}P^t$ for all cells $i$, we simply look at the rows of $P^t$. Therefore, let's calculate $P^{50}$:
-
-```{r}
-trm50 <- trm
-for( i in 2:50 )
-  trm50 <- trm50 %*% trm
-```
-
-Now, we can read off the probability vector (diffusion pattern) after 50 steps, when starting
-at cell $i$ simply by looking into the $i$-th column of the matrix $P^{50}$. Let's write $\mathbf{p}^t_i$
-for the $i$-th row of $P^t$.
-
-Let's get distances that way:
-
-```{r}
-dists1 <- as.matrix( dist( t(trm50) ) )
-plot( dists1[start_cell,], dists1[end_cell,] )
+wm3 <- diffusion_comps( km_adp, 10 )
+ptA3 <- dists_to_cell( end_cell[3], wm3 ) - dists_to_cell( end_cell[1], wm3 )
+ptB3 <- dists_to_cell( end_cell[3], wm3 ) - dists_to_cell( end_cell[2], wm3 )
 ```
 
 ```{r}
-dists1 <- as.matrix( dist( t( t( t(trm50) / limit_dist ) ) ) )
-plot( dists1[start_cell,], dists1[end_cell,] )
+plot( ptA2, ptA3, asp=1 )
 ```
 
-```{r}
-trmt <- trm
-dists1 <- as.matrix( dist( t( t( t(trm) / limit_dist ) ) ) )
-plot( dists1[start_cell,], dists1[end_cell,], col=br )
-```
+Here, this does not make much difference, because our cell density is uniform. In real
+data, it will make a difference.
 
+### Implementation
+
+In Bioconductor, the functionality described here is offered, with some modifications, 
+by the package "destiny". The main difference is that destiny does not let the user
+chose a time value $t$ but instead sums over all time values, i.e.,
+our equation $w_{il,t} =\lambda_l^t\psi_{il}$ is replaced with
+$$ w_{il} = \sum_{t=1}^\infty \lambda_l^t\psi_{il} = \frac{\lambda_l}{1-\lambda_l}\psi_{il} $$
