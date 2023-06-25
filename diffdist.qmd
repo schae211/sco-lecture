@@ -640,6 +640,9 @@ We have filtered to have each edge only once.
 Now, let's assemble our kernel matrix.
 
 ```{r}
+suppressPackageStartupMessages( 
+   library(Matrix) )
+
 km <- with( nn_tbl, 
    sparseMatrix( 
      i = cell1, 
