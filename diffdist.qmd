@@ -723,3 +723,21 @@ by the package "destiny". The main difference is that destiny does not let the u
 chose a time value $t$ but instead sums over all time values, i.e.,
 our equation $w_{il,t} =\lambda_l^t\psi_{il}$ is replaced with
 $$ w_{il} = \sum_{t=1}^\infty \lambda_l^t\psi_{il} = \frac{\lambda_l}{1-\lambda_l}\psi_{il} $$
+
+### References
+
+The idea of diffusion maps is by Lafon and Coifman:
+
+- RR Coifman, S Lafon (2006): *Diffusion maps*, Applied and Computational Harmonic Analysis, 21:5-30. 
+  [[Link]](https://doi.org/10.1016/j.acha.2006.04.006)
+
+The idea to use this for single-cell analysis was first explored here:
+
+- L Haghverdi, M Büttner, FA Wolf, F Buettner & FJ Theis (2013): *Diffusion pseudotime robustly reconstructs lineage branching*,
+  Nature Methods, 13:845. [[Link]](https://doi.org/10.1038/nmeth.3971)
+
+A software implementation, the "destiny" package, is presented here:
+
+- P Angerer, L Haghverdi, M Büttner, FJ Theis, C Marr, F Buettner (2016): 
+  *destiny: diffusion maps for large-scale single-cell data in R*,
+  Bioinformatics, 32:1241. [[Link]](https://doi.org/10.1093/bioinformatics/btv715)
