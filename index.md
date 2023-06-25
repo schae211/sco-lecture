@@ -61,3 +61,9 @@ about smoothing methods.
 
 [Here](pca.html), we learn how PCA really works, and [here](pca2.html), we see its
 effect on cell-to-cell distances.
+
+### Pseudotime II: Diffusion distances
+
+[Here](princurves.html), we learn how principal curves are used to get a pseudotime,
+and [here](diffdist.html) how diffusion maps are used for this purpose.
+
