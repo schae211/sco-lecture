@@ -1,5 +1,8 @@
 ---
 format: html
+editor: 
+  markdown: 
+    wrap: 72
 ---
 
 ## Applied Mathematics in Biology: Single Cell Omics
@@ -12,31 +15,80 @@ Simon Anders, Univ. Heidelberg, 2023-06
 
 ### State space and feature space
 
-In single-cell transcriptomics, but also in many other areas, we measure a large number of quantities ("features") that tell us about the properties of the objects (or "observations" or "statistical units") that we are studying. In scRNA-Seq, the features are the genes (or: their expression strength) and the cells are the observations. The number of features, $m$, is typically large. The measured values from each cell can be presented as an $m$-dimensional vector, the "feature vector" describing the cells. The vectors live in a fector space called the "feature space". Typically, the feature space is (isomorphic to) $\mathbb{R}^m$, even though the raw count data rather lives in $\mathbb{N}^m$. Here, we will consider the log-normalized expression values (log fractions) to make up the feature vectors.
+In single-cell transcriptomics, but also in many other areas, we measure
+a large number of quantities ("features") that tell us about the
+properties of the objects (or "observations" or "statistical units")
+that we are studying. In scRNA-Seq, the features are the genes (or:
+their expression strength) and the cells are the observations. The
+number of features, $m$, is typically large. The measured values from
+each cell can be presented as an $m$-dimensional vector, the "feature
+vector" describing the cells. The vectors live in a fector space called
+the "feature space". Typically, the feature space is (isomorphic to)
+$\mathbb{R}^m$, even though the raw count data rather lives in
+$\mathbb{N}^m$. Here, we will consider the log-normalized expression
+values (log fractions) to make up the feature vectors.
 
-Not all vectors in $\mathbb{R}^m$ can actually appear as feature vectors. Only a "small" sub-set of the full feature space corresponds to biologically possible cell states. Furthermore, some cell types of cell states are represented in greater number than others in our biological sample.
+Not all vectors in $\mathbb{R}^m$ can actually appear as feature
+vectors. Only a "small" sub-set of the full feature space corresponds to
+biologically possible cell states. Furthermore, some cell types of cell
+states are represented in greater number than others in our biological
+sample.
 
-Therefore, we imagine that there is a probability density or measure $\mu$ on $\mathbb{R}^m$ such that randomly taking acell from our biological sample and measuring its RNA content by sequencing can be modelled as drawing a feature vector from this distribution. The distribution on feature space therefore embodies all the information we can hope to get from our sample. Describing it and drawing biological conclusions from its "shape" is our aim.
+Therefore, we imagine that there is a probability density or measure
+$\mu$ on $\mathbb{R}^m$ such that randomly taking acell from our
+biological sample and measuring its RNA content by sequencing can be
+modelled as drawing a feature vector from this distribution. The
+distribution on feature space therefore embodies all the information we
+can hope to get from our sample. Describing it and drawing biological
+conclusions from its "shape" is our aim.
 
-The support of this distribution may well be a manifold that has a dimensionality much smaller than $m$. In order to describe the distribution, it there seems useful do obtain a map of the manifold and pull the distribution back through it, so that we obtain a distribution in the manifold's map space $\mathbb{R}^k$, where hopefully $k\ll m$.
+The support of this distribution may well be a manifold that has a
+dimensionality much smaller than $m$. In order to describe the
+distribution, it there seems useful do obtain a map of the manifold and
+pull the distribution back through it, so that we obtain a distribution
+in the manifold's map space $\mathbb{R}^k$, where hopefully $k\ll m$.
 
-We can come to a similar view from another side: Cells regulate the expression of their genes. Depending on a cell's state, different genes are needed and hence expressed. We may imagine an abstract "state space" $\mathcal{S}$ that contains all the possible states a cell can be in. If a cell changes its state, i.e., in order to react to a stimulus, perform a biological task, differentiate, or the like, we imagine that this can be described by a continuous curve, mapping real (wall-clock) time to states in the abstract $\mathcal{S}$. We further imagine that the state space is equiped with some metric such that states that are similar (in the sense that a cell can transition from one to the other in short time) have small distance from each other.
+We can come to a similar view from another side: Cells regulate the
+expression of their genes. Depending on a cell's state, different genes
+are needed and hence expressed. We may imagine an abstract "state space"
+$\mathcal{S}$ that contains all the possible states a cell can be in. If
+a cell changes its state, i.e., in order to react to a stimulus, perform
+a biological task, differentiate, or the like, we imagine that this can
+be described by a continuous curve, mapping real (wall-clock) time to
+states in the abstract $\mathcal{S}$. We further imagine that the state
+space is equiped with some metric such that states that are similar (in
+the sense that a cell can transition from one to the other in short
+time) have small distance from each other.
 
-Then, the dynamics of possible and actual state transitions in a whole organism, or in the part that we have sampled, induces a probability distribution of possible cell states at the time point of sampling.
+Then, the dynamics of possible and actual state transitions in a whole
+organism, or in the part that we have sampled, induces a probability
+distribution of possible cell states at the time point of sampling.
 
-There should be a map from, say, $\mathbb{R}^k$ to the state space -- and as our state space is abstract, we better use that real space as a "model" of our state space.
+There should be a map from, say, $\mathbb{R}^k$ to the state space --
+and as our state space is abstract, we better use that real space as a
+"model" of our state space.
 
-Each state is associated with an mRNA complement, i.e., a feature vector. Therefore, there is a map from the abstract state space to feature space.
+Each state is associated with an mRNA complement, i.e., a feature
+vector. Therefore, there is a map from the abstract state space to
+feature space.
 
-In this sense, the manifold map mentioned earlier can be seen as some kind of model of the state space.
+In this sense, the manifold map mentioned earlier can be seen as some
+kind of model of the state space.
 
-How can we try to get towards that manifold map? The PCA is a crude but very useful first approximation.
+How can we try to get towards that manifold map? The PCA is a crude but
+very useful first approximation.
 
 ### Construction of simulated data
 
-Note: Today, we are using the "statisticians' convention" (data rows are observations, columns are features), not the "bioinformaticians' convention" (transposed) that we have used mostly so far.
+Note: Today, we are using the "statisticians' convention" (data rows are
+observations, columns are features), not the "bioinformaticians'
+convention" (transposed) that we have used mostly so far.
 
-To construct our example data, we assume we have $n$ observations (e.g., cells). The state of each of our very simplified "cells" can be describes by just three variables that we call the "state factors" or "latent factors". We draw them independently from some arbitrarily chosen distributions:
+To construct our example data, we assume we have $n$ observations (e.g.,
+cells). The state of each of our very simplified "cells" can be
+describes by just three variables that we call the "state factors" or
+"latent factors". We draw them independently from some arbitrarily
+chosen distributions:
 
 ```{r}
 n <- 1000
@@ -54,9 +106,13 @@ Here's the distribution of the 3 latent factors across the cells:
 geneplotter::multidensity( latent )
 ```
 
-In our simplified example, we measure the expression of 7 genes for each cell (or, more generally speaking: we measure 7 observable features for each observation / statistical unit).
+In our simplified example, we measure the expression of 7 genes for each
+cell (or, more generally speaking: we measure 7 observable features for
+each observation / statistical unit).
 
-Each of the 7 features is a linear combination of the three latent factors. The coefficients for these linear combinations are given by the following matrix:
+Each of the 7 features is a linear combination of the three latent
+factors. The coefficients for these linear combinations are given by the
+following matrix:
 
 ```{r}
 latent_loadings <- rbind(
@@ -75,7 +131,9 @@ image( 1:7, 1:3, latent_loadings,
 axis( 2, 1:3 )
 ```
 
-Now, we simulate our feature measurements by forming the linear combinations via matrix multiplications and adding some i.i.d. noise to the individual measurement values:
+Now, we simulate our feature measurements by forming the linear
+combinations via matrix multiplications and adding some i.i.d. noise to
+the individual measurement values:
 
 ```{r}
 y0 <- latent %*% t(latent_loadings) 
@@ -84,9 +142,12 @@ y <- y0 + matrix( rnorm( 7*n, sd=1.5 ), ncol=7 )
 head(y)
 ```
 
-Note that our noise is Gaussian, not Poisson. The Poisson case has to wait for later.
+Note that our noise is Gaussian, not Poisson. The Poisson case has to
+wait for later.
 
-The data matrix without noise (y0) has rank 3, because its 7-dimensional row vectors span only a 3-dimensional subspace within the 7-dimensional feature space:
+The data matrix without noise (y0) has rank 3, because its 7-dimensional
+row vectors span only a 3-dimensional subspace within the 7-dimensional
+feature space:
 
 ```{r}
 qr( y0 )$rank
@@ -98,19 +159,39 @@ Once we add the noise, we lose sight of this subspace
 qr( y )$rank
 ```
 
-This does not mean that all of $\mathbb{R}^7$ is now filled. We are merely "lifted off" from the manifold surface by a little bit.
+This does not mean that all of $\mathbb{R}^7$ is now filled. We are
+merely "lifted off" from the manifold surface by a little bit.
 
-Can we find it again? This is the aim of principal component analysis (PCA).
+Can we find it again? This is the aim of principal component analysis
+(PCA).
 
 ### Aim of PCA
 
-In a principal component analysis, we are given an $n \times m$ data matrix $Y$, where each row $\mathbf{y}_i$ describes one of $n$ observation (e.g., each row is one cell), while the columns of $Y$ (components of the $\mathbf{y}_i$) are the different variables (or "features"; for us, genes) observed for each observation. The features span an $\mathbb{R}^m$ vector space, the "feature space".
+In a principal component analysis, we are given an $n \times m$ data
+matrix $Y$, where each row $\mathbf{y}_i$ describes one of $n$
+observation (e.g., each row is one cell), while the columns of $Y$
+(components of the $\mathbf{y}_i$) are the different variables (or
+"features"; for us, genes) observed for each observation. The features
+span an $\mathbb{R}^m$ vector space, the "feature space".
 
-As a preparation, we subtract from each colums of $Y$ its mean, yielding the "centered data matrix $Y^\text{c}$. In other words: after centering, the average value of each feature is zero. Often, one afterwards also divides each column by its standard deviation ("centering and scaling" of the data), but we skip this here.
+As a preparation, we subtract from each colums of $Y$ its mean, yielding
+the "centered data matrix $Y^\text{c}$. In other words: after centering,
+the average value of each feature is zero. Often, one afterwards also
+divides each column by its standard deviation ("centering and scaling"
+of the data), but we skip this here.
 
-The objective is now to find a rotation matrix $R\in O(m)$ (i.e., an orthonormal matrix, $R^\mathsf{T}R=I$) to transform the observation vectors $\mathbf{y}_i$ into a new basis, $\mathbf{x}_i = R\mathbf{y}^\text{c}_i$, and thus form a new data matrix $X=Y^\text{c}R$, such that - the columns of $X$ are pairwise orthogonal - the sample variances of the columns of $X$ are maximal, and - the columns of X are sorted by their variance.
+The objective is now to find a rotation matrix $R\in O(m)$ (i.e., an
+orthonormal matrix, $R^\mathsf{T}R=I$) to transform the observation
+vectors $\mathbf{y}_i$ into a new basis,
+$\mathbf{x}_i = R\mathbf{y}^\text{c}_i$, and thus form a new data matrix
+$X=Y^\text{c}R$, such that - the columns of $X$ are pairwise
+orthogonal - the sample variances of the columns of $X$ are maximal,
+and - the columns of X are sorted by their variance.
 
-While each column of $Y$ or $Y^\text{c}$ corresponds to a feature (a directly measurable quantity), each column of $X$ corresponds to a linear combination of features. We say that each column describes a principal factor (PC) of the data.
+While each column of $Y$ or $Y^\text{c}$ corresponds to a feature (a
+directly measurable quantity), each column of $X$ corresponds to a
+linear combination of features. We say that each column describes a
+principal factor (PC) of the data.
 
 ### Perform the PCA and compare
 
@@ -124,7 +205,8 @@ str(pca)
 
 Now let's check that the aim just outlined has been obtained.
 
-The default setting of `prcomp` is center=TRUE and scale.=FALSE, i.e., the first step was to center but not scale the data matrix
+The default setting of `prcomp` is center=TRUE and scale.=FALSE, i.e.,
+the first step was to center but not scale the data matrix
 
 ```{r}
 yc <- t( t(y) - colMeans(y) )
@@ -139,26 +221,34 @@ head( colMeans(y) )
 head( pca$center )
 ```
 
-As $Y^\text{c}$ was column-centered, $X$ is so too, because this property is preserved by rotations:
+As $Y^\text{c}$ was column-centered, $X$ is so too, because this
+property is preserved by rotations:
 
 ```{r}
 colMeans( pca$x )
 ```
 
-Next, let's check that the columns of $X$ are really pairwise orthogonal and sorted by their variance. To this end, we calculate $X^\mathsf{T}X$, because the element $i,j$ of this matrix contains the scalar product of the $i$-th with the $j$-th column of $X$.
+Next, let's check that the columns of $X$ are really pairwise orthogonal
+and sorted by their variance. To this end, we calculate $X^\mathsf{T}X$,
+because the element $i,j$ of this matrix contains the scalar product of
+the $i$-th with the $j$-th column of $X$.
 
 ```{r}
 round( t(pca$x) %*% pca$x, 5 )
 ```
 
-We can see that any scalar product of two different columns of $X$ is zero, i.e. the columns are all pairwise orthogonal.
+We can see that any scalar product of two different columns of $X$ is
+zero, i.e. the columns are all pairwise orthogonal.
 
-The diagonal gives us the scalar product of a column of $X$ with itself $X$, which is (because $X$ is column-centered) the $(n-1)$-fold column variance:
+The diagonal gives us the scalar product of a column of $X$ with itself
+$X$, which is (because $X$ is column-centered) the $(n-1)$-fold column
+variance:
 
 $$(X^\mathsf{T}X)_{jj} = \sum_i x_{ij}^2 = \sum_i \left(x_{ij} - \langle x_{i'j}\rangle_{i'}\right)^2=(n-1)\operatorname{sVar}_i x_{ij}$$
 
-We can see the column variance in three ways: From the diagonal of $X^\mathsf{T}X$, 
-by calculating the directly, and we can also read them in `pca$sdev`:
+We can see the column variance in three ways: From the diagonal of
+$X^\mathsf{T}X$, by calculating the directly, and we can also read them
+in `pca$sdev`:
 
 ```{r}
 diag( t(pca$x) %*% pca$x ) / ( nrow(pca$x) - 1 )
@@ -170,15 +260,18 @@ pca$sdev^2
 
 As we can see, the columsn of $X$ are sorted by decreasing variance.
 
-Here, we also note that (up to rounding errors), the total sum of squares (equivalent
-to the total variance summed over all columns) has not changed under rotation:
+Here, we also note that (up to rounding errors), the total sum of
+squares (equivalent to the total variance summed over all columns) has
+not changed under rotation:
 
 ```{r}
 sum( pca$x^2 )
-sum( y^2 )
+sum( yc^2 )
 ```
 
-We have not checked yet whether $X$ actually is the result of multiplying $Y^\text{c}$ with the rotation matrix $R$. So, let's check whether $X=Y^\text{c}R$, or, equivalently, $Y^\text{c}=XR^\mathsf{T}$:
+We have not checked yet whether $X$ actually is the result of
+multiplying $Y^\text{c}$ with the rotation matrix $R$. So, let's check
+whether $X=Y^\text{c}R$, or, equivalently, $Y^\text{c}=XR^\mathsf{T}$:
 
 ```{r}
 head( yc )
@@ -187,7 +280,8 @@ cat("\n")
 head( pca$x %*% t(pca$rotation) )
 ```
 
-This means that we can *reconstruct* the original data ($Y$) from the PCA result as follows:
+This means that we can *reconstruct* the original data ($Y$) from the
+PCA result as follows:
 
 ```{r}
 head( y )
@@ -196,16 +290,17 @@ cat("\n")
 head( t( t( pca$x %*% t(pca$rotation) ) + pca$center ) )
 ```
 
-Let's also check that $R$ is really a rotation matrix, i.e., that $R^\mathsf{T}R=I$
+Let's also check that $R$ is really a rotation matrix, i.e., that
+$R^\mathsf{T}R=I$
 
 ```{r}
 round( t(pca$rotation) %*% pca$rotation, 5 )
 ```
 
-
 ### PCA Reconstruction
 
-Here is a plot showing the PCs' standard deviations (sometimes called a "scree plot"):
+Here is a plot showing the PCs' standard deviations (sometimes called a
+"scree plot"):
 
 ```{r}
 plot( pca$sdev, type="b", ylim=c( 0, 10 ) )
@@ -213,15 +308,17 @@ abline( h=0 )
 abline( h=0.2, col="gray" )
 ```
 
-
 We note:
 
 -   The PCs are correctly sorted by descending standard deviations
--   There are 3 PCs of substantial magnitude: These correspond to the 3 latent factors that we used in the construction of our sample data
--   The four remaining factors have SD values on the order of the i.i.d. noise that we added to each feature in the data construction (`+ rnorm( 7*n, sd=.2 )` above)
+-   There are 3 PCs of substantial magnitude: These correspond to the 3
+    latent factors that we used in the construction of our sample data
+-   The four remaining factors have SD values on the order of the i.i.d.
+    noise that we added to each feature in the data construction
+    (`+ rnorm( 7*n, sd=1.5 )` above)
 
-
-Let's also look at this related plot, whose relevance will become clear later:
+Let's also look at this related plot, whose relevance will become clear
+later:
 
 ```{r}
 plot( 0:7, c( 0, cumsum( pca$sdev^2 ) ), 
@@ -240,16 +337,18 @@ head( y )
 What is the mean squared error (MSE) of the reconstruction?
 
 ```{r}
-mean( ( t( t( pca$x %*% t(pca$rotation) ) + pca$center ) - y )^2 )
+dplyr::near(mean( ( t( t( pca$x %*% t(pca$rotation) ) + pca$center ) - y )^2 ), 0)
 ```
 
-What happpens if we don't use the whole matrix $X$ but only the first three columns?
+What happpens if we don't use the whole matrix $X$ but only the first
+three columns?
 
 ```{r}
 mean( ( t( t( pca$x[,1:3] %*% t(pca$rotation[,1:3]) ) + pca$center ) - y )^2 )
 ```
 
-Let's successively add more and more columns (starting with 0 columns, i.e., using only the column means).
+Let's successively add more and more columns (starting with 0 columns,
+i.e., using only the column means).
 
 ```{r}
 mse <-sapply( 0:7, function(i) {
@@ -262,38 +361,52 @@ plot( 0:7, mse, xlab="nbr of PCs used", type="b" )
 abline( h=0, col="gray" )
 ```
 
-We conclude: The first 3 PCs are sufficient to reconstruct the data with very high precision.
+We conclude: The first 3 PCs are sufficient to reconstruct the data with
+very high precision.
 
-In effect, we have **reduced the dimensionality** of the data, from 7 features to 3 PCs.
+In effect, we have **reduced the dimensionality** of the data, from 7
+features to 3 PCs.
 
-This is possible because we had constructed the data by sampling from a 3-dimensional latent space and then added i.i.d. noise in feature space -- but only so little that the noise did not drown out the latent "signal".
+This is possible because we had constructed the data by sampling from a
+3-dimensional latent space and then added i.i.d. noise in feature space
+-- but only so little that the noise did not drown out the latent
+"signal".
 
-The first three columns of the rotation matrix provide an orthonormal basis of the reconstructed latent space:
+The first three columns of the rotation matrix provide an orthonormal
+basis of the reconstructed latent space:
 
 ```{r}
 pca$rotation[,1:3]
 ```
 
-How well does this space overlap with the original latent space? To see, let's project each of the original latent vectors into this space. Here are the three latent features again, represented as feature-space vectors:
+How well does this space overlap with the original latent space? To see,
+let's project each of the original latent vectors into this space. Here
+are the three latent features again, represented as feature-space
+vectors:
 
 ```{r}
 latent_loadings
 ```
 
-Let's project the first loading vector, $\mathbf{m}_1$ onto the orthonormal basis $\mathbf{r}_1, \mathbf{r}_2, \mathbf{r}_3$\
-spanned by the first three PCs. The projection is calculated by $\tilde{\mathbf{m}}_1=\sum_{k=1}^3 (\mathbf{r}_j\cdot\mathbf{m}_1)\mathbf{r}_j$
+Let's project the first loading vector, $\mathbf{m}_1$ onto the
+orthonormal basis $\mathbf{r}_1, \mathbf{r}_2, \mathbf{r}_3$\
+spanned by the first three PCs. The projection is calculated by
+$\tilde{\mathbf{m}}_1=\sum_{k=1}^3 (\mathbf{r}_j\cdot\mathbf{m}_1)\mathbf{r}_j$
 
 ```{r}
 pca$rotation[,1:3] %*% ( t(pca$rotation[,1:3]) %*% latent_loadings[,1] )
 ```
 
-To see how close this projected vector is to the original, we calculate $\|\tilde{\mathbf{m}}_1-\mathbf{m}_1\|^2/\|\mathbf{m}_1\|^2$:
+To see how close this projected vector is to the original, we calculate
+$\|\tilde{\mathbf{m}}_1-\mathbf{m}_1\|^2/\|\mathbf{m}_1\|^2$:
 
 ```{r}
 sum( ( pca$rotation[,1:3] %*% ( t(pca$rotation[,1:3]) %*% latent_loadings[,1] ) - latent_loadings[,1] )^2 ) / sum( latent_loadings[,1]^2 )
 ```
 
-The difference between original and projected vector is less than 1% of the length of the vector, i.e., the loading vector is nearly entirely in the subspace spanned by the PC vectors.
+The difference between original and projected vector is less than 1% of
+the length of the vector, i.e., the loading vector is nearly entirely in
+the subspace spanned by the PC vectors.
 
 The same is true for all three loading vectors
 
@@ -302,11 +415,17 @@ sapply( 1:3, function(j)
   sum( ( pca$rotation[,1:3] %*% ( t(pca$rotation[,1:3]) %*% latent_loadings[,j] ) - latent_loadings[,j] )^2 ) / sum( latent_loadings[,j]^2 ) )
 ```
 
-Let's check for the correalation between PC basis vectors and latent loading
-vectors:
+Let's check for the correalation between PC basis vectors and latent
+loading vectors:
 
 ```{r}
-t( cor( pca$rotation, latent_loadings ) )
+#t( cor( pca$rotation, latent_loadings ) )
+cor( pca$rotation, latent_loadings ) %>%
+  as.data.frame() %>%
+  rownames_to_column("pc") %>%
+  tidyr::pivot_longer(cols=!pc) %>%
+  ggplot() +
+  geom_tile(aes(x=pc, y=name, fill=value))
 
 image( 1:7, 1:3, cor( pca$rotation, latent_loadings ), 
   zlim=c(-2,2), col=colorRampPalette(c("red","gray80","blue"))(100), asp=1, 
@@ -314,16 +433,21 @@ image( 1:7, 1:3, cor( pca$rotation, latent_loadings ),
 axis( 2, 1:3 )
 ```
 
-We can see that PC1 clearly picked up latent factor 1, albeit with opposite sign.
-PC2 and PC3 seem to capture together latent factors 2 and 3, but could not split
-them. The remaining PCs capture mainly the noise but also still some part that
-seems to be common to LF 1 and 2.
+We can see that PC1 clearly picked up latent factor 1, albeit with
+opposite sign. PC2 and PC3 seem to capture together latent factors 2 and
+3, but could not split them. The remaining PCs capture mainly the noise
+but also still some part that seems to be common to LF 1 and 2.
 
 ### Distance reconstruction
 
-Rotations are distance-preserving. Therefore, the distance between two cells is the same in feature space and PC space.
+Rotations are distance-preserving. Therefore, the distance between two
+cells is the same in feature space and PC space.
 
-If we calculate the distances not in the full 7-dimensional PC space but only using the first 3 dimensions, they will change, but not too much. Importantly for us, however, the distances in this truncated PCA space will be closer to the distances in latent space than to those in feature space.
+If we calculate the distances not in the full 7-dimensional PC space but
+only using the first 3 dimensions, they will change, but not too much.
+Importantly for us, however, the distances in this truncated PCA space
+will be closer to the distances in latent space than to those in feature
+space.
 
 To illustrate, we randomly draw pairs of cells:
 
@@ -334,13 +458,15 @@ cell2 <- sample.int( n, 2000, replace=TRUE )
 head( cbind( cell1, cell2 ) )
 ```
 
-Here are the distances between the cell pairs, calculated in feature space
+Here are the distances between the cell pairs, calculated in feature
+space
 
 ```{r}
 feature_space_dists <- sqrt( rowSums( ( y[cell1,] - y[cell2,] )^2 ) )
 ```
 
-As feature space and PCA space are the same space, just differing by a basis rotation, the following distances are the same:
+As feature space and PCA space are the same space, just differing by a
+basis rotation, the following distances are the same:
 
 ```{r}
 full_pca_space_dists <- sqrt( rowSums( ( pca$x[cell1,] - pca$x[cell2,] )^2 ) )
@@ -352,7 +478,8 @@ We check that they are identical, with a scatter plot:
 plot( feature_space_dists, full_pca_space_dists, asp=1, cex=.3, col="#00000020" )
 ```
 
-Now, let's calculate the distance in the PCA space truncated only to the first three PCs:
+Now, let's calculate the distance in the PCA space truncated only to the
+first three PCs:
 
 ```{r}
 truncated_pca_space_dists <- sqrt( rowSums( ( pca$x[cell1,1:3] - pca$x[cell2,1:3] )^2 ) )
@@ -372,7 +499,8 @@ mean( ( feature_space_dists - full_pca_space_dists )^2 )
 mean( ( feature_space_dists - truncated_pca_space_dists )^2 )
 ```
 
-Our feature-space data matrix $Y$ contained measurement noise. We still have the data without the added meaurement noise:
+Our feature-space data matrix $Y$ contained measurement noise. We still
+have the data without the added measurement noise:
 
 ```{r}
 noiseless_feature_space_dists <- sqrt( rowSums( ( y0[cell1,] - y0[cell2,] )^2 ) )
@@ -406,28 +534,32 @@ mean( ( latent_space_dists - truncated_pca_space_dists )^2 )
 
 ### PCA's inner working
 
-*Note on notation:* In this and the following sections, we omit the superscript "${}^\text{s}$" to
-denote the centered data matrix. From now on, we will assume that $Y$ is always column-centered.
+*Note on notation:* In this and the following sections, we omit the
+superscript "${}^\text{s}$" to denote the centered data matrix. From now
+on, we will assume that $Y$ is always column-centered.
 
-What the PCA function does internally is quickly said: It computes the eigendecomposition
-of $Y^\mathsf{T}Y$:
+What the PCA function does internally is quickly said: It computes the
+eigendecomposition of $Y^\mathsf{T}Y$:
 
 ```{r}
 eig <- eigen( t(yc) %*% yc, symmetric=TRUE )
 ```
 
-As a reminder: The eigendecomposition of a real-valued matrix $M$ is the factorization 
-$M=U\Lambda U^\mathsf{T}$ with $U$ a rotation matrix and $\Lambda$ a diagonal matrix. The diagonal elements
-on $\Lambda$ are called $M$'s eigenvalues $\lambda_s$ and are, by convention, sorted in descending order.
-To each eigenvalue, the corresponding eigenvector $\mathbf{u}_s$ is given by the $s$-th column of $U$.
+As a reminder: The eigendecomposition of a real-valued matrix $M$ is the
+factorization $M=U\Lambda U^\mathsf{T}$ with $U$ a rotation matrix and
+$\Lambda$ a diagonal matrix. The diagonal elements on $\Lambda$ are
+called $M$'s eigenvalues $\lambda_s$ and are, by convention, sorted in
+descending order. To each eigenvalue, the corresponding eigenvector
+$\mathbf{u}_s$ is given by the $s$-th column of $U$.
 
-The eigenvectors and eigenvalues satisfy the equations $M\mathbf{u}_s=\lambda_s\mathbf{u}_s$.
+The eigenvectors and eigenvalues satisfy the equations
+$M\mathbf{u}_s=\lambda_s\mathbf{u}_s$.
 
-According to the principal axes theorem, such a decomposition can always be found if $M$
-is symmetric.
+According to the principal axes theorem, such a decomposition can always
+be found if $M$ is symmetric.
 
-Back to our PCA. Let's compare the result of the eigendecomposition of $Y^\mathsf{T} Y$
-with the PCA of $Y$:
+Back to our PCA. Let's compare the result of the eigendecomposition of
+$Y^\mathsf{T} Y$ with the PCA of $Y$:
 
 The eigenvalues form the $R$:
 
@@ -439,8 +571,9 @@ pca$rotation
 max( abs( abs(eig$vectors) - abs( pca$rotation ) ) )
 ```
 
-As we see, the matrices are identical, except for the fact some columns have opposite sign. This is
-expected: eigenvalues are only defined up to an arbitrary sign.
+As we see, the matrices are identical, except for the fact some columns
+have opposite sign. This is expected: eigenvalues are only defined up to
+an arbitrary sign.
 
 The eigenvalues can be found as the column sum of squares of $X$:
 
@@ -452,34 +585,44 @@ colSums( pca$x^2 )
 pca$sdev^2 * (nrow(pca$x)-1)
 ```
 
-### Why we use the eigendecomposition
+### Why we use the Eigendecomposition
 
-*Note on notation:* In thi section, we will use index letters with fixed meaning:
+*Note on notation:* In this section, we will use index letters with
+fixed meaning:
 
-- $i=1,\dots,n$ always indexes the observations (cells)
-- $j=1,\dots,m$ always indexes features (genes)
-- $l=1,\dots,m$ always indexes principal components (PCs)
-- $s=1,\dots,m$ always indexes eigenvectors and eigenvalues
+-   $i=1,\dots,n$ always indexes the observations (cells)
+-   $j=1,\dots,m$ always indexes features (genes)
+-   $l=1,\dots,m$ always indexes principal components (PCs)
+-   $s=1,\dots,m$ always indexes Eigenvectors and eigenvalues
 
-In a PCA, we aim to find a basis rotation such that the expansion of our feature vectors
-(rows of $Y$) in this new basis has certain properties.
+In a PCA, we aim to find a basis rotation such that the expansion of our
+feature vectors (rows of $Y$) in this new basis has certain properties.
 
-So, for each observation (feature vector, row of Y), we can expand the feature vector in two bases.
-In the standard basis of the feature space,
-$$\mathbf{y}_i = \sum_{j=1}^m y_{ij} \mathbf{e}_j,$$
-and in the rotated basis formed by the PCs,
-$$\mathbf{y}_i = \sum_{l=1}^m r_{il} \mathbf{r}_l.$$
-Here, the basis vectors $\mathbf{r}_l$ are the columns of the PCA rotation matrix $R$. We can truncate 
-the latter expansion, using only the first $k$ PCs: $\mathbf{y}_i^{[k]} = \sum_{l=1}^k x_{il} \mathbf{r}_l.$
-We wish that for any $k$, this the reconstruction error $\Delta\mathbf{y}_i^{[k]}=\|\mathbf{y}_i^{[k]}-\mathbf{y}_i\|^2$ is minimal when 
-averaging over all cells $i$. 
+So, for each observation (feature vector, row of Y), we can expand the
+feature vector in two bases. In the standard basis of the feature space,
+$$\mathbf{y}_i = \sum_{j=1}^m y_{ij} \mathbf{e}_j,$$ and in the rotated
+basis formed by the PCs,
+$$\mathbf{y}_i = \sum_{l=1}^m r_{il} \mathbf{r}_l.$$ Here, the basis
+vectors $\mathbf{r}_l$ are the columns of the PCA rotation matrix $R$.
+We can truncate the latter expansion, using only the first $k$ PCs:
+$\mathbf{y}_i^{[k]} = \sum_{l=1}^k x_{il} \mathbf{r}_l.$ We wish that
+for any $k$, this the reconstruction error
+$\Delta\mathbf{y}_i^{[k]}=\|\mathbf{y}_i^{[k]}-\mathbf{y}_i\|^2$ is
+minimal when averaging over all cells $i$.
 
 We split the expansion in PCA space into two parts:
 
-$$\mathbf{y}_i = \underbrace{\sum_{l=1}^k x_{il} \mathbf{r}_l}_{\mathbf{y}_i^{[k]}} + \underbrace{\sum_{j=k+1}^m x_{il} \mathbf{r}_l}_{\Delta\mathbf{y}_i^{[k]}}$$
-As the basis $\{\mathbf{r}_l\}_l$ is orthonormal, the two parts aor orthogonal and their lengths add up by Pythagoras:
+$$
+\mathbf{y}_i = \underbrace{\sum_{l=1}^k x_{il} \mathbf{r}_l}_{\mathbf{y}_i^{[k]}} + \underbrace{\sum_{j=k+1}^m x_{il} \mathbf{r}_l}_{\Delta\mathbf{y}_i^{[k]}}
+$$
+
+As the basis $\{\mathbf{r}_l\}_l$ is orthonormal, the two parts are
+orthogonal and their lengths add up by Pythagoras:
 $$\|\mathbf{y}_i\|^2 = \|\mathbf{y}_i^{[k}]\|^2+\|\Delta\mathbf{y}_i^{[k]}\|^2 = \sum_{l=1}^kx_{il}^2+\sum_{l=k+1}^mx_{il}^2.$$
-Therefore, we should chose the basis vectors $\mathbf{r}_l$ (i.e., the columns of $R$) such that they induce values for $x$ that put as much of the total in this sum into the left term. 
+
+Therefore, we should chose the basis vectors $\mathbf{r}_l$ (i.e., the
+columns of $R$) such that they induce values for $x$ that put as much of
+the total in this sum into the left term.
 
 Adding this up over all cells, we get:
 
@@ -487,46 +630,72 @@ $$\sum_{i=1}^n\|\mathbf{y}_i\|^2=\underbrace{\sum_{i=1}^n\sum_{j=1}^m y_{ij}^2}_
 \sum_{i=1}^n\sum_{l=1}^k x_{il}^2 + \sum_{i=1}^n\sum_{l=k+1}^m x_{il}^2 =
 \underbrace{\sum_{i=1}^n\sum_{l=1}^m x_{il}^2}_{\|X\|_\text{F}^2} $$
 
-Here we have introduced the notation $\|M\|_\text{F}=\sqrt{\sum_{ij}m_{ij}^2}$ for the Froebenius norm of
-a matrix $M$, which is calculated by summing up the squared of all elements and taking the square root of the sum.
+Here we have introduced the notation
+$\|M\|_\text{F}=\sqrt{\sum_{ij}m_{ij}^2}$ for the Froebenius norm of a
+matrix $M$, which is calculated by summing up the squared of all
+elements and taking the square root of the sum.
 
-We see that $Y$ and $X$ have the same Froebenius norm. Furthermore, we see that as much of the total sum of squared
-collected in $\|X\|^2_\text{F}$ should come from the *left-most* columns of $X$. 
+We see that $Y$ and $X$ have the same Froebenius norm. Furthermore, we
+see that as much of the total sum of squared collected in
+$\|X\|^2_\text{F}$ should come from the *left-most* columns of $X$.
 
-Hence, in order to get a rotation giving a good reconstruction, let's first look at the case of $k=1$, i.e., only the
-first column, $\mathbf{x}_1$, of $X$ contributes to the reconstruction and all other columns to the error. We want to find
-the $X$ that maximizes $\|\mathbf{x}_1\|^2$. We first observe that $X=RY$ each column of $X=YR$ implies that each column of $X$ depends
-on one column of $R$: $\mathbf{x}_l = Y\mathbf{r}_l$.
+Hence, in order to get a rotation giving a good reconstruction, let's
+first look at the case of $k=1$, i.e., only the first column,
+$\mathbf{x}_1$, of $X$ contributes to the reconstruction and all other
+columns to the error. We want to find the $X$ that maximizes
+$\|\mathbf{x}_1\|^2$. We first observe that $X=RY$ each column of $X=YR$
+implies that each column of $X$ depends on one column of $R$:
+$\mathbf{x}_l = Y\mathbf{r}_l$.
 
 We wish to maximize $\|\mathbf{x}_1\|^2$:
 $$\|\mathbf{x}_1\|^2 = \mathbf{x}_1^\mathsf{T}\mathbf{x}_1 = \mathbf{r}_1^\mathsf{T}Y^\mathsf{T}Y\mathbf{r}_1.$$
-Above, we have performed the eigendecomposition: $Y^\mathsf{T}Y=U\Lambda U^\mathsf{T}$. Let's expand $\mathbf{r}_1$ in the eigenbasis of $Y^\mathsf{T}Y$, formed by the columns $\mathbf{u}_s$ of $U$: 
+Above, we have performed the eigendecomposition:
+$Y^\mathsf{T}Y=U\Lambda U^\mathsf{T}$. Let's expand $\mathbf{r}_1$ in
+the eigenbasis of $Y^\mathsf{T}Y$, formed by the columns $\mathbf{u}_s$
+of $U$:
 $$\mathbf{r}_1=\sum_s\rho_s\mathbf{u}_s \qquad \text{(with }\sum_s \rho_s^2=1\text{)}.$$
-Using 
-$Y^\mathsf{T}Y\mathbf{u}_s=\lambda_s\mathbf{u}_s$ and $\mathbf{u}_s^\mathsf{T}\mathbf{u}_{s'}=\delta_{ss'}$, we get
+Using $Y^\mathsf{T}Y\mathbf{u}_s=\lambda_s\mathbf{u}_s$ and
+$\mathbf{u}_s^\mathsf{T}\mathbf{u}_{s'}=\delta_{ss'}$, we get
 $$\|\mathbf{x}_1\|^2 = \sum_{s,s'} \rho_s \rho_{s'} \mathbf{u}_s^\mathsf{T} Y^\mathsf{T}Y \mathbf{u}_{s'} =
 \sum_{s,s'} \rho_s \rho_{s'} \lambda_s \mathbf{u}_s^\mathsf{T} \mathbf{u}_{s'} = \sum_s \rho_s^2 \lambda_s$$
 
-How should we partition $\mathbf{r}_1$'s unit length on the vectors of the eigenbasis? Clearly, we have to put all weight on the largest
-eigenvector $\lambda_1$, in order to maximize $\|\mathbf{x}_1\|^2$. Therefore, we have $\mathbf{x}_1=\mathbf{u}_1$ -- the first column
-of $X$ is the first column of $U$, i.e., the first eigenvector of $Y^\mathsf{T}Y$.
+How should we partition $\mathbf{r}_1$'s unit length on the vectors of
+the eigenbasis? Clearly, we have to put all weight on the largest
+eigenvector $\lambda_1$, in order to maximize $\|\mathbf{x}_1\|^2$.
+Therefore, we have $\mathbf{x}_1=\mathbf{u}_1$ -- the first column of
+$X$ is the first column of $U$, i.e., the first eigenvector of
+$Y^\mathsf{T}Y$.
 
-How to chose $\mathbf{r}_2$ to maximize $\|\mathbf{x}_2\|^2$? As $\mathbf{r}_2$ has to be orthogonal to $\mathbf{r}_1$, its $\rho_1$ must be 0. Hence all weight goes to the next eigenvalue, and we conclude that $\mathbf{r}_2 = \mathbf{u}_2$. And so on. Thus, we see that $R=U$.
+How to chose $\mathbf{r}_2$ to maximize $\|\mathbf{x}_2\|^2$? As
+$\mathbf{r}_2$ has to be orthogonal to $\mathbf{r}_1$, its $\rho_1$ must
+be 0. Hence all weight goes to the next eigenvalue, and we conclude that
+$\mathbf{r}_2 = \mathbf{u}_2$. And so on. Thus, we see that $R=U$.
 
-This is why PCA is performed by computing the eigendecomposition of $Y^\mathsf{T}Y$.
+This is why PCA is performed by computing the eigendecomposition of
+$Y^\mathsf{T}Y$.
 
 #### The intuition behind $Y^\mathsf{T}Y$
 
-Note that $Y^\mathsf{T}Y$ is the variance-covariance matrix (or, simply, covariance matrix) of the data matrix. Remember
-that the (sample) covariance of two features (columns of $Y$), $j$ and $j'$, is 
+Note that $Y^\mathsf{T}Y$ is the variance-covariance matrix (or, simply,
+covariance matrix) of the data matrix. Remember that the (sample)
+covariance of two features (columns of $Y$), $j$ and $j'$, is
 $$ \frac{1}{n-1}\sum_i\left(y_{ij}-\langle y_{i'j}\rangle_{i'}\right) \left(y_{ij'}-\langle y_{i'j'}\rangle_{i'}\right)$$
-As our data matrix is column centered, this can be simplified to $\frac{1}{n-1}\sum_i y_{ij} y_{ij'}$, which is, up to the omitted
-prefactor $\frac{1}{n-1}$, the matrix element in the $j$-th row and the $j'$the column of $Y^\mathsf{T}Y$.
+As our data matrix is column centered, this can be simplified to
+$\frac{1}{n-1}\sum_i y_{ij} y_{ij'}$, which is, up to the omitted
+prefactor $\frac{1}{n-1}$, the matrix element in the $j$-th row and the
+$j'$the column of $Y^\mathsf{T}Y$.
 
-We can interpret the covariance matrix as a quadratic form (i.e., a quadratic function, mapping a vector to a scalar), $Q(\mathbf{v})=\mathbf{v}^\mathsf{T}Y^\mathsf{T}T\mathbf{v}$, that tells us, when given a unit vector $\mathbf{v}$, how much of the data's
-total variance is preserved when the data is projected onto the axis specified by $\mathbf{v}$. Hence, choosing the axes with regards
-to which Q is diagonal, will give us the optimal basis for the variance decmoposition sought in PCA.
+We can interpret the covariance matrix as a quadratic form (i.e., a
+quadratic function, mapping a vector to a scalar),
+$Q(\mathbf{v})=\mathbf{v}^\mathsf{T}Y^\mathsf{T}T\mathbf{v}$, that tells
+us, when given a unit vector $\mathbf{v}$, how much of the data's total
+variance is preserved when the data is projected onto the axis specified
+by $\mathbf{v}$. Hence, choosing the axes with regards to which Q is
+diagonal, will give us the optimal basis for the variance decmoposition
+sought in PCA.
 
-Admittedly, this will seem intuitive only to those readers who have already attended a lecture in mechanics and
-successfully wrestled with understanding the inertial tensor -- the application that originally gave rise to the principal axes theorem, and
-which also provided the inspiration to Pearson to invent PCA.
+Admittedly, this will seem intuitive only to those readers who have
+already attended a lecture in mechanics and successfully wrestled with
+understanding the inertial tensor -- the application that originally
+gave rise to the principal axes theorem, and which also provided the
+inspiration to Pearson to invent PCA.
