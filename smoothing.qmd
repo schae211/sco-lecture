@@ -1,12 +1,28 @@
 ---
-format: html
+title: "Smoothing"
+engine: knitr
+author: "Simon Anders"
+execute:
+  freeze: auto
+format:
+  html:
+    html-math-method: mathjax
+    theme: darkly
+    toc: true
+    number-sections: true
+    code-tools:
+      source: repo
 ---
 
-## Applied Mathematics in Biology: Single Cell Omics
-
-Lecture Notes
-
-Simon Anders, Univ. Heidelberg, 2023-06
+```{r}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(splines)
+})
+ggplot2::theme_set(ggdark::dark_theme_bw() +
+                       theme(plot.title = element_text(hjust = 0.5), 
+                             panel.grid = element_line(color="grey", linewidth = 0.1)))
+```
 
 ## Kernel Smoothing and Local Regression
 
@@ -24,8 +40,10 @@ spline_knots = c( .1, .1, .32, .35, .36, .48, .7 )
 true_function <- function(x)
    bs( x, knots=spline_knots, intercept=TRUE ) %*% spline_coefs
 
-xg <- seq( 0, 1, length.out=1000 )
-plot( xg, true_function( xg ), type="l" )
+tibble(x=seq( 0, 1, length.out=1000 )) %>%
+  dplyr::mutate(y=true_function(x)) %>%
+  ggplot() +
+  geom_line(aes(x=x, y=y))
 ```
 
 Let's assume, we have some complicated apparatus or some complex system, which 
@@ -38,19 +56,10 @@ Here's the 100 stimulus values:
 ```{r}
 n <- 100
 set.seed( 13245769 )
-x <- runif( n )
-```
-
-And here's the measured responses:
-
-```{r}
-y <- true_function( x ) + rnorm( n, sd=.1 )
-```
-
-This is how our data looks like:
-
-```{r}
-plot( x, y )
+df <- tibble::tibble(x = runif(n)) %>%
+  dplyr::mutate(y = true_function(x) + rnorm(n, sd=.1))
+ggplot(df) +
+  geom_point(aes(x=x, y=y))
 ```
 
 Can we reconstruct the original function from this noisy data?
@@ -62,13 +71,12 @@ each bin of x values an average of the y values, e.g. one average of the y value
 corresponding to the x-values x from 0 to 0.1, one average for x between .1 and .2, etc.
 
 ```{r}
-suppressPackageStartupMessages( library( tidyverse ) )
-
-tibble( x, y ) %>%
-mutate( xbin = cut_width( x, .1, center=0.05 ) ) %>%
-group_by( xbin ) %>%
-summarise_all( mean ) %>%
-ggplot() + geom_point( aes( xbin, y ) )
+df %>%
+  mutate( xbin = cut_width( x, .1, center=0.05 ) ) %>%
+  group_by( xbin ) %>%
+  summarise_all( mean ) %>%
+  ggplot() + 
+  geom_point( aes( xbin, y ) )
 ```
 
 ### Kernel smoothing
@@ -79,9 +87,14 @@ To get a smooth $y$ value for a given value $x_0$, calculate a *weighted* mean
 of the $y$ values, where the weight depends on the distance $x-x_0$ and is 0
 for distance larger than some "smoothing bandwidth" $h$:
 
-$$ f_\text{sm}(x_0) = \frac{ \sum_i y_i w_i }{\sum_i w_i}, $$
+$$ 
+f_\text{sm}(x_0) = \frac{ \sum_i y_i w_i }{\sum_i w_i}, 
+$$
 where the weights depend on some "kernel function" $f_\text{K}$ as
-$$ w_i = f_\text{K}\left(\frac{x-x_0}{h}\right).$$
+
+$$
+w_i = f_\text{K}\left(\frac{x-x_0}{h}\right).
+$$
 
 There are many choices for kernel functions. Wikipedia [lists](https://en.wikipedia.org/wiki/Kernel_(statistics)) the popular
 ones.
@@ -89,11 +102,13 @@ ones.
 A kernel function should be symmetric $f_\text{K}(x)=f_\text{K}(-x)$, 
 have a single mode at 0, be continuous, perhaps also differentiable, and 
 small or even zero for $|x|>0$. We use the tricube kernel
-$$ f_\text{tc}(u) = \left\{ \begin{align}
+$$
+f_\text{tc}(u) = \left\{ \begin{align}
 \frac{70}{81} \left(1-|u|^3\right)^3 \qquad & \text{for } |u| \le 1 
 \\
 0 \qquad & \text{otherwise} 
-\end{align} \right.$$
+\end{align} \right.
+$$
 
 The prefactor merely ensures that the function has a unit integral. 
 As we divide by the weight sum anyway, we don't need it:
@@ -119,11 +134,11 @@ xg <- seq( 0, 1, length.out = 300 )
 
 plot( 
   xg, 
-  sapply( xg, kernel_smooth, x, y, h=.1), 
+  sapply( xg, kernel_smooth, df$x, df$y, h=.1), 
   type="l", col="red", ylim=c( -.1, 1.5 ) )
 
 lines( xg, true_function( xg ), col="blue" )
-points( x, y )
+points( df$x, df$y )
 ```
 
 For comparison, we have added to the smoothing curve (red) the true function (blue),
@@ -151,34 +166,37 @@ using points with weight-proportional area:
 ```{r}
 x0 <- .4
 
-w <- tricube( ( x - x0 ) / .1 )
+w <- tricube( ( df$x - x0 ) / .1 )
 
-plot( x, y, cex=w )
+plot( df$x, df$y, cex=w )
 ```
 
 Let's fit a regression in line into with plot. We use the fact that the `lm` function 
 accepts weights.
 
 ```{r}
-fit <- lm( y ~ x, weights=w )
-
+fit <- lm( df$y ~ df$x, weights=w )
 fit
 ```
 
 Here, `lm` has now maximized the weighted sum of squared residuals,
 
-$$ \frac{\sum_i w_i ( \hat y_i - y )^2}{\sum_i w_i}, \qquad \text{with } \hat y_i = \hat a + \hat b x_i, $$
+$$
+\frac{\sum_i w_i ( \hat y_i - y )^2}{\sum_i w_i}, \qquad \text{with } \hat y_i = \hat a + \hat b x_i,
+$$
 where $\hat a$ and $\hat b$ are the fitetd coefficients (intercept and slope), reported by
+
 ```{r}
 coef(fit)
 ```
+
 and $w_i$ are the weights, calculated as above.
 
-Let's put the regression line into our plot, in orange, together fith the fitted
+Let's put the regression line into our plot, in orange, together with the fitted
 value at point $x_0$ (in red) :
 
 ```{r}
-plot( x, y, cex=w )
+plot( df$x, df$y, cex=w )
 abline( a=coef(fit)[1], b=coef(fit)[2], col="orange" )
 points( x0, coef(fit)[1] + x0*coef(fit)[2], col="red" )
 lines( xg, true_function(xg), col="lightblue" )
@@ -200,13 +218,13 @@ It's not vectorized, so we have to wrap it in an `sapply` to get the whole smoot
 ```{r}
 plot( 
   xg, 
-  sapply( xg, local_regression_smooth, x, y, h=.1), 
+  sapply( xg, local_regression_smooth, df$x, df$y, h=.1), 
   type="l", col="red", ylim=c( -.1, 1.5 ) )
 
 lines( xg, true_function( xg ), col="blue" )
 ```
-Here, this did not make too much difference, but sometimes, switching from simple kernel 
-smoothing to local regression helps a lot.
+
+Here, this did not make too much difference, but sometimes, switching from simple kernel smoothing to local regression helps a lot.
 
 #### Higher-order local regression
 
@@ -224,7 +242,7 @@ local_quadratic_regression_smooth <- function( x0, x, y, h ) {
 ```{r}
 plot( 
   xg, 
-  sapply( xg, local_quadratic_regression_smooth, x, y, h=.1), 
+  sapply( xg, local_quadratic_regression_smooth, df$x, df$y, h=.1), 
   type="l", col="red", ylim=c( -.1, 1.5 ) )
 
 lines( xg, true_function( xg ), col="blue" )
@@ -232,9 +250,7 @@ lines( xg, true_function( xg ), col="blue" )
 
 #### Locfit
 
-In R, all this, and more, is available via the `loess` function (part of base R)
-or the `locfit` package. Our implementation above is, of course, very simple and slow, so better
-use these functions.
+In R, all this, and more, is available via the `loess` function (part of base R) or the `locfit` package. Our implementation above is, of course, very simple and slow, so better use these functions.
 
 ### Bootstrapping
 
@@ -245,11 +261,12 @@ Bootstrapping offers a way.
 First for simple kernel smoothing:
 
 ```{r}
-plot( x, y, xlim=c(0,1), ylim=c(-.2,1.6) )
+plot( df$x, df$y, xlim=c(0,1), ylim=c(-.2,1.6) )
 
+set.seed(42)
 for( i in 1:100 ) {
-  bss <- sample.int( length(x), replace=TRUE )
-  lines( xg, sapply( xg, kernel_smooth, x[bss], y[bss], h=.1 ), 
+  bss <- sample.int( length(df$x), replace=TRUE )
+  lines( xg, sapply( xg, kernel_smooth, df$x[bss], df$y[bss], h=.1 ), 
      col = adjustcolor( "red", alpha=.1 ) ) }
 
 lines( xg, true_function(xg), col="blue" )
@@ -258,11 +275,12 @@ lines( xg, true_function(xg), col="blue" )
 Now for local quadratic regression:
 
 ```{r}
-plot( x, y, xlim=c(0,1), ylim=c(-.2,1.6) )
+plot( df$x, df$y, xlim=c(0,1), ylim=c(-.2,1.6) )
 
+set.seed(42)
 for( i in 1:100 ) {
-  bss <- sample.int( length(x), replace=TRUE )
-  lines( xg, sapply( xg, local_quadratic_regression_smooth, x[bss], y[bss], h=.1 ), 
+  bss <- sample.int( length(df$x), replace=TRUE )
+  lines( xg, sapply( xg, local_quadratic_regression_smooth, df$x[bss], df$y[bss], h=.1 ), 
      col = adjustcolor( "red", alpha=.1 ) ) }
 
 lines( xg, true_function(xg), col="blue" )
@@ -272,30 +290,29 @@ lines( xg, true_function(xg), col="blue" )
 
 Another possibility is to use LOO-CV:
 
-Calculate for each data point its y value, using the y values of its neighbours, but
-the point's own y value.
+Calculate for each data point its y value, using the y values of its neighbors, but the point's own y value.
 
 ```{r}
-yhat_loo <- sapply( 1:length(x), function(i)
-  kernel_smooth( x[i], x[-i], y[-i], h=.1 ) ) 
+yhat_loo <- sapply( 1:length(df$x), function(i)
+  kernel_smooth( df$x[i], df$x[-i], df$y[-i], h=.1 ) ) 
 
-plot( x, y )
-points( x, yhat_loo, col="red" )
+plot( df$x, df$y )
+points( df$x, yhat_loo, col="red" )
 ```
 
 Now we can calculate a mean squared error (MSE):
 
 ```{r}
-mean( ( y - yhat_loo )^2 )  # Mean squared error
+mean( ( df$y - yhat_loo )^2 )
 ```
 
 Is the MSE lower bith a more advanced smoother?
 
 ```{r}
-yhat_loo <- sapply( 1:length(x), function(i)
-  local_quadratic_regression_smooth( x[i], x[-i], y[-i], h=.1 ) ) 
+yhat_loo <- sapply( 1:length(df$x), function(i)
+  local_quadratic_regression_smooth( df$x[i], df$x[-i], df$y[-i], h=.1 ) ) 
 
-mean( ( y - yhat_loo )^2 )
+mean( ( df$y - yhat_loo )^2 )
 ```
 
 ### Adaptive bandwidth
@@ -375,18 +392,27 @@ plot( x, q, log="y")
 
 Now, we add the Poisson noise:
 
-```{r}
-k <- rpois( n, q * s )
+-> The scaling factor basically determines how much the 0 can pull down the curve!
 
+```{r}
+plot( x, log( k/s * 1e3 + 1 ) )
 plot( x, log( k/s * 1e4 + 1 ) )
+plot( x, log( k/s * 1e5 + 1 ) )
 ```
 
 ### Kernel smoothing
 
 Let's first use a simple kernel smoother. However, for the average, we use this time not
-$$ f_\text{sm}(x_0) = \frac{ \sum_i y_i w_i }{\sum_i w_i}, $$
+$$
+f_\text{sm}(x_0) = \frac{ \sum_i y_i w_i }{\sum_i w_i}
+$$
+
 as before, but
-$$ f_\text{Psm}(x_0) = \log \frac{ \sum_i k_i w_i }{\sum_i s_i w_i}, $$
+
+$$
+f_\text{Psm}(x_0) = \log \frac{ \sum_i k_i w_i }{\sum_i s_i w_i}
+$$
+
 We first try it, then see why it makes sense.
 
 ```{r}
@@ -415,7 +441,11 @@ Given $n$ independent random variables $X_i$ with variances $v_i=\operatorname{v
 we want to estimate the expectation 
 of their mean, $\operatorname{E}\left(\frac{1}{n}\sum_{i=1}^n X_i\right)$, by way 
 of estimating a weighted mean,
-$$ \hat\mu = \frac{\sum_iw_iX_i}{\sum_i w_i}. $$
+
+$$
+\hat\mu = \frac{\sum_iw_iX_i}{\sum_i w_i}
+$$
+
 How should the weights be chosen such that the estimator's sampling variance, 
 $\operatorname{Var}\hat\mu$, is minimized?
 
@@ -434,13 +464,23 @@ derived from Poisson counts. We have cells, indexed by $i$, with counts for our 
 of interest, given by $K_i\sim \operatorname{Pois}(s_i q)$, where $s_i$ is the
 "size", i.e., the total count sum for the cell. We wish to estimate the common
 expected fraction $q$ via teh weighted average
-$$ \hat q = \frac{\sum_iw_i\frac{K_i}{s_i}}{\sum_i w_i}. $$
+$$
+\hat q = \frac{\sum_iw_i\frac{K_i}{s_i}}{\sum_i w_i}
+$$
+
 What weights $w_i$ should we use? Using $\operatorname{Var} K_i=s_i q$ together with
 the preceding result, we get
-$$ w_i \propto \frac{1}{\operatorname{Var}\frac{K_i}{s_i}}=\frac{1}{\frac{1}{s_i^2}\operatorname{Var}K_i}=\frac{1}{\frac{1}{s_i^2}s_iq}=\frac{s_i}{q} \propto s_i $$
+
+$$
+w_i \propto \frac{1}{\operatorname{Var}\frac{K_i}{s_i}}=\frac{1}{\frac{1}{s_i^2}\operatorname{Var}K_i}=\frac{1}{\frac{1}{s_i^2}s_iq}=\frac{s_i}{q} \propto s_i
+$$
+
 Hence:
 
-$$ \hat q = \frac{\sum_iw_i\frac{K_i}{s_i}}{\sum_i w_i} = \frac{\sum_i s_i\frac{K_i}{s_i}}{\sum_i s_i} = \frac{\sum_i K_i}{\sum_i s_i}. $$
+$$
+\hat q = \frac{\sum_iw_i\frac{K_i}{s_i}}{\sum_i w_i} = \frac{\sum_i s_i\frac{K_i}{s_i}}{\sum_i s_i} = \frac{\sum_i K_i}{\sum_i s_i}
+$$
+
 This justifies our switching from $\frac{1}{n}\sum_i(k_i/s_i)$ to $(\sum_i k_i)/(\sum_i s_i)$ in our smoothing function.
 
 ### Generalized linear models
@@ -465,12 +505,17 @@ A simple approach is to plot on a semi-log plot:
 ```{r}
 plot( t, k, log="y")
 ```
+
 and fit a regression line. However, the zeroes mess this up.
 
 Here's a better way:
 
 We may assume that 
-$$ k_i \sim \operatorname{Pois}( \alpha e^{\kappa t_i})$$
+
+$$
+k_i \sim \operatorname{Pois}( \alpha e^{\kappa t_i})
+$$
+
 The true values are $\alpha = 100$ (the initial click rate) and
 $\kappa = \ln 2 / 20\approx .035$ (using the half life, 20, from above).
 
@@ -489,20 +534,35 @@ optim(
   c( 50, 0.1 ),
   function( x ) -ll( x[1], x[2] ) )
 ```
+
 Rewriting our model a bit, we recover the form of a "generalized linear model" (GLM). A GLM
 always has three components:
 
 (i) The response (in our case, the counts $K_i$) follows a distribution from the so-called exponential 
 family (which includes the normal, the Poisson, the binomial, the gamma-Poisson, and others). Here, we have:
 
-$$ K_i \sim \operatorname{Pois}( \mu_i ). $$
+$$
+K_i \sim \operatorname{Pois}( \mu_i )
+$$
+
 (ii) The mean parameter $\mu_i$ in that distribution is coupled with teh so-called "linear
 predictir$ \eta_i$ bny a function, the so-called "link fucntion". Here:
-$$ \eta_i = \log \mu_i. $$
+
+$$
+\eta_i = \log \mu_i
+$$
+
 (iii) The linear predictor is a linear combination of known predictors $x_ij$ with unknown coefficients $\beta_j$. In general
-$$ \eta_i = \beta_0 + \sum_j \beta_j x_{ij} + o_i$$
+$$
+\eta_i = \beta_0 + \sum_j \beta_j x_{ij} + o_i
+$$
+
 and here simply
-$$ \eta_i = \beta_0 + beta_1 t_i, $$ 
+
+$$
+\eta_i = \beta_0 + beta_1 t_i,
+$$ 
+
 i.e. we have, besides the intercept $\beta_0$, only one further coefficient, $\beta_1$. 
 
 There are also no offsets $o_i$. (If the time
@@ -515,12 +575,21 @@ We can clearly identify $\beta_1=-\kappa=-\ln2/T_{1/2}$ and $\beta_0=\ln\alpha$.
 If the model has this shape, the general optimizer `optim` that we have used above
 can be replaced by a GLM solver:
 
+Note that we only need to know the variance but not the likelihood, because here we weight with the inverse variance -> but what if the observed count is 0? -> not an issue because the GLM uses the predicted values to predict the variance
+
+```{r}
+# check what information we have about the distribution
+str(poisson())
+```
+
+
 ```{r}
 fit <- glm( k ~ t, family = poisson(link="log") )
 fit
 ```
 We get the same result as with optim. We see this directly for the coeffcient for $t$ (i.e.,
 $\kappa$), but for $\alpha$, we have to exponentiate:
+
 ```{r}
 exp(coef(fit)[1])
 ```
@@ -564,3 +633,8 @@ plot( x, log( k/s + 1e-4 ), col="gray" )
 lines( xg, yhat, col="red" )
 lines( xg, log( true_fraction( xg ) ), col="blue" ) 
 ```
+
+TODO: But what about using an adaptive bandwidth here!?
+
+
+

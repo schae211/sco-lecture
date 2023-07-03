@@ -82,17 +82,17 @@ trm <- km / zv
 Let's pick a "start cell" $i$:
 
 ```{r}
-i <- 612
+cell_i <- 612
 ```
 
 The $i$-th row of our transition matrix tells us for each cell $j$ the probability that the token will end up there if we put the token at cell $j$ and perform one transition (one "hop"). Let's visualize these probabilities (and mark the start cell with a $\times$):
 
 ```{r}
 as_tibble( x ) %>%
-mutate( prob = trm[i,] ) %>%
+mutate( prob = trm[cell_i,] ) %>%
 ggplot( aes( x=V1, y=V2 ) ) + 
   geom_point( aes( col=prob ) ) +
-  geom_point( shape="cross", col="orange", data=as_tibble(x)[i,,drop=FALSE] ) +
+  geom_point( shape="cross", col="orange", data=as_tibble(x)[cell_i, , drop=FALSE] ) +
   coord_equal()
 ```
 
@@ -129,7 +129,7 @@ Let's try this, performing the repeated vector-matrix multiplication by a "for" 
 v <- v0
 for( i in 0:300 ) {
   
-  if( i %in% c( 0, 1, 2, 3, 5, 10, 20, 30, 50, 100, 300 ) ) 
+  if ( i %in% c( 0, 1, 2, 3, 5, 10, 20, 30, 50, 100, 300 ) ) 
     print(
       as_tibble( x ) %>%
       mutate( prob = drop(v) ) %>%
@@ -264,7 +264,7 @@ Here are the diffusion distances from our original starting cell, cell `i`, to a
 
 ```{r}
 as_tibble( x ) %>%
-mutate( dist = d10[i,] ) %>%
+mutate( dist = d10[cell_i,] ) %>%
 ggplot( aes( x=V1, y=V2 ) ) + 
   geom_point( aes( col=dist ) ) +
   coord_equal() +
@@ -276,7 +276,7 @@ ggplot( aes( x=V1, y=V2 ) ) +
 For our next trick, we need to cells at the "ends" of the manifold. We find the right-hand end cell by taking the cell farthest from our starting cell:
 
 ```{r}
-end_cell <- which.max( d10[i,] )
+end_cell <- which.max( d10[cell_i,] )
 ```
 
 Here's the distances from this "end cell":

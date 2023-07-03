@@ -31,7 +31,7 @@ suppressPackageStartupMessages({
 The data is provided, as before, in MatrixMarket format:
 
 ```{r}
-mtx_mm <- read.delim( gzfile( "/mnt/raid/ifnagrko/ifnagrko_raw_counts.mtx.gz" ), 
+mtx_mm <- read.delim( gzfile( "data/ifnagrko_raw_counts.mtx.gz" ), 
    comment.char="%", sep=" ", header=FALSE )
 head( mtx_mm )
 ```
@@ -40,7 +40,7 @@ Again, we have a seperate file with gene annotations. We remove the first column
 it contains only line numbers.
 
 ```{r}
-genes <- read_csv( "/mnt/raid/ifnagrko/ifnagrko_var.csv", show_col_types=FALSE )[,-1] 
+genes <- read_csv( "data/ifnagrko_var.csv", show_col_types=FALSE )[,-1] 
 head( genes )
 ```
 For the cell annotation, our file is richer than usual as it contains not
@@ -48,7 +48,7 @@ only the barcodes (as usual) but also all the results of Damian et al.'s
 previous analysis:
 
 ```{r}
-cells <- read_csv( "/mnt/raid/ifnagrko/ifnagrko_obs.csv" )
+cells <- read_csv( "data/ifnagrko_obs.csv" )
 head(cells)
 ```
 We assemble the count matrix:
@@ -103,8 +103,10 @@ Plot first two PCs
 ```{r}
 plot( pca$x[,1], pca$x[,2], pch=".", asp=1 )
 ```
+
 Get a UMAP. This time, we let `umap` do the neighborhood search and extract the result
 for further use
+
 ```{r}
 ump <- uwot::umap( pca$x, min_dist=.1, ret_nn=TRUE )
 nn <- ump$nn$euclidean
@@ -112,13 +114,15 @@ ump <- ump$embedding
 ```
 
 Here is the UMAP:
+
 ```{r}
 plot( ump, pch=".", asp=1, col = adjustcolor( "black", alpha=.2 ) )
 ```
 
 It's useful to use sleepwalk, too. (Not run.)
+
 ```{r eval=FALSE}
-sleepwalk::sleepwalk( ump, pca$x )
+#sleepwalk::sleepwalk( ump, pca$x )
 ```
 
 For Leiden clustering, we get the NN graph from the NN data returned by umap,
@@ -201,6 +205,7 @@ geom_point( aes( col=dpt_pseudotime ), size=.1 ) +
   coord_equal() +
   scale_color_viridis_c()
 ```
+
 They used a method known as "diffusion pseudotime" (DPT), implemented in the "destiny"
 package, to get there. We will first try another method, known as "principal curve".
 
@@ -268,6 +273,7 @@ ggplot( aes( x=V1, y=V2 ) ) +
   geom_point( aes( col=expr ), size=.1, alpha=.3 ) +
   coord_equal() + scale_color_viridis_c( direction=-1 )
 ```
+
 Maybe, binarizing it makes it easier to see:
 
 ```{r}
@@ -275,7 +281,7 @@ as_tibble( ump ) %>%
 add_column( expr = lfracs["Slc2a1",]>0 ) %>%
 ggplot( aes( x=V1, y=V2 ) ) +
   geom_point( aes( col=expr ), size=.1, alpha=.3 ) +
-  coord_equal() + scale_color_manual( values=c("gray80","darkblue") )
+  coord_equal() + scale_color_manual( values=c("grey","forestgreen") )
 ``` 
 
 Still, hard to see something. Typical "salt-and-pepper plot".
@@ -341,7 +347,7 @@ plot( fit, log="" )
 ```
 
 To understand what is going on here, we need to learn about *kernel smoothing* and
-*local regression*. For this, we start a new notebook.
+*local regression*. For this, we start a new notebook - see `smoothing.qmd`
 
 ### Homework 1
 
@@ -352,6 +358,112 @@ value for the gene's expression at the respective pseudotime points.
 
 Compare a heatmap made with locfit with one made by simple pseudotime binning and 
 averaging.
+
+```{r}
+barcodes_1 <- cells %>%
+  # do we want to filter here?
+  dplyr::filter(genotype %in% c("KO", "WT")) %>%
+  dplyr::filter(age %in% c("old", "young")) %>%
+  dplyr::filter(celltype2 %in% c("qNSC1", "qNSC2")) %>%
+  dplyr::pull(barcode)
+
+barcodes_2 <- cells %>%
+  # do we want to filter here?
+  dplyr::filter(genotype %in% c("KO", "WT")) %>%
+  dplyr::filter(age %in% c("old", "young")) %>%
+  dplyr::filter(celltype2 %in% c("NB")) %>%
+  dplyr::pull(barcode)
+
+counts_1 <- sparseMatrixStats::rowMeans2(counts[, barcodes_1])
+counts_2 <- sparseMatrixStats::rowMeans2(counts[, barcodes_2])
+
+logFC <- log1p(counts_1) - log1p(counts_2)
+names(logFC) <- rownames(counts)
+genes_oi <- c(names(head(sort(logFC), 10)),
+              names(tail(sort(logFC), 10))
+)
+genes_oi
+```
+
+```{r}
+library( locfit )
+
+df <- purrr::map_dfr(genes_oi, function(gene) {
+  d <- tibble::tibble(
+    t = cells$dpt_pseudotime,
+    g = gene,
+    k = counts[gene,],
+    s = totals
+  ) %>%
+    dplyr::filter(!is.na(t))
+  model <- locfit( k ~ lp(t, h=.2),  # model
+                   base=log(s),      # offset - why?
+                   d,                # data
+                   family="poisson", # modeling counts using poisson likelihood
+                   ev=lfgrid(300)    # ?
+                   )
+  d <- d %>%
+    dplyr::mutate(smoothed =  predict(model, d))
+  return(d)
+}) %>%
+  dplyr::group_by(g) %>%
+  dplyr::mutate(smoothed_min_max = (smoothed-min(smoothed)) / (max(smoothed)-min(smoothed))) %>%
+  dplyr::ungroup()
+```
+
+```{r}
+df %>%
+  dplyr::mutate(g = factor(g, levels=genes_oi)) %>%
+  dplyr::mutate(t_bin = cut_interval(t, length = 0.01)) %>%
+  dplyr::group_by(g, t_bin) %>%
+  dplyr::summarise(smoothed = mean(smoothed), .groups = "drop") %>%
+  ggplot() +
+  geom_tile(aes(x=t_bin, y=g, fill=smoothed)) +
+  scale_fill_viridis_c() +
+  labs(x="Pseudotime", y="Genes", fill="Smoothed\nExpression") +
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+
+df %>%
+  dplyr::mutate(g = factor(g, levels=genes_oi)) %>%
+  dplyr::mutate(t_bin = cut_interval(t, length = 0.01)) %>%
+  dplyr::group_by(g, t_bin) %>%
+  dplyr::mutate(frac = mean(k / s)) %>%
+  ggplot() +
+  geom_tile(aes(x=t_bin, y=g, fill=frac)) +
+  scale_fill_viridis_c() +
+  labs(x="Pseudotime", y="Genes", fill="Fraction") +
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+```
+
+
+```{r}
+df %>%
+  dplyr::mutate(g = factor(g, levels=genes_oi)) %>%
+  dplyr::mutate(t_bin = cut_interval(t, length = 0.01)) %>%
+  dplyr::group_by(g, t_bin) %>%
+  dplyr::summarise(smoothed_min_max = mean(smoothed_min_max), .groups = "drop") %>%
+  ggplot() +
+  geom_tile(aes(x=t_bin, y=g, fill=smoothed_min_max)) +
+  scale_fill_viridis_c() +
+  labs(x="Pseudotime", y="Genes", fill="MinMax\nSmoothed\nExpression") +
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+
+df %>%
+  dplyr::mutate(g = factor(g, levels=genes_oi)) %>%
+  dplyr::mutate(t_bin = cut_interval(t, length = 0.01)) %>%
+  dplyr::group_by(g, t_bin) %>%
+  dplyr::summarise(frac = mean(k / s), .groups = "drop_last") %>%
+  dplyr::mutate(frac_min_max = (frac-min(frac)) / (max(frac)-min(frac))) %>%
+  ggplot() +
+  geom_tile(aes(x=t_bin, y=g, fill=frac_min_max)) +
+  scale_fill_viridis_c() +
+  labs(x="Pseudotime", y="Genes", fill="MinMax\nFraction") +
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+```
 
 ### Homework 2
 
@@ -377,9 +489,78 @@ sizes. Which seems to be most useful?
 Also: Calculate for each cell the "deviance" between of its neighborhood-smoothed estimate $\hat q$
 and its observed value $k$:
 
-$$ D = -2 \left( \log f_\text{Pois}( k; s\hat q ) -  \log f_\text{Pois}( k; k ) \right), $$
+$$ 
+D = -2 \left( \log f_\text{Pois}( k; s\hat q ) -  \log f_\text{Pois}( k; k ) \right), 
+$$
+
 where $f_\text{Pois}(k,\lambda)$ is the Poisson probability mass function, i.e., the probability
 to observe $k$ when drawing from a Poisson distribution with rate parameter $\lambda$. (In R, use `dpois( k, lambda, log=TRUE )` to get $\log f_\text{Pois}(k,\lambda)$.) 
 
-Derive from the deviance the "deviance residual" $z=\sqrt{D}\cdot\operatorname{sgn}(k-s\hat q)$ and use that to colour
-your UMAPs. What might this tell you?
+Derive from the deviance the "deviance residual" (TODO: suppossed to be sign here?)
+
+$$
+z=\sqrt{D}\cdot\operatorname{sign}(k-s\hat q)?
+$$
+
+and use that to colour your UMAPs. What might this tell you?
+
+```{r}
+nn <- RANN::nn2(pca$x, k = 100)
+nn$idx <- nn$nn.idx
+nn$dists <- nn$nn.dists
+```
+
+```{r}
+g <- "Slc1a3"
+NN <- 20
+counts_oi <- counts[g, ]
+s <- colSums(counts)
+lfracs_oi <- lfracs[g, ]
+nn_lfracs <- purrr::map_dbl(1:length(lfracs_oi), function(i) {
+  mean(lfracs_oi[nn$idx[i, 1:NN]])
+})
+nn_counts <- purrr::map_dbl(1:length(counts_oi), function(i) {
+  sum(counts_oi[nn$idx[i, 1:NN]])
+})
+nn_totals <- purrr::map_dbl(1:length(counts_oi), function(i) {
+  sum(s[nn$idx[i, 1:NN]])
+})
+nn_fracs <- nn_counts / nn_totals
+dev <- -2 * (dpois(x=counts_oi, lambda=s*nn_fracs, log=TRUE) - 
+  dpois(x=counts_oi, lambda=counts_oi, log=TRUE))
+  
+df <- tibble::tibble(
+  c = counts_oi,
+  s = s,
+  lfracs = lfracs_oi,
+  nn_lfracs = nn_lfracs,
+  nn_counts = nn_counts,
+  nn_totals = nn_totals,
+  nn_fracs = nn_fracs,
+  devicance = dev,
+  z = sqrt(devicance) * sign(c - s*nn_fracs),
+  umap_1 = ump[,1],
+  umap_2 = ump[,2],
+  ct = (cells %>% dplyr::pull(celltype2, barcode))[colnames(counts)]
+)
+```
+
+```{r}
+df %>%
+    ggplot() +
+    geom_point(aes(x=umap_1, y=umap_2, color=ct), size=0.1)
+```
+
+```{r}
+p_list <- purrr::map(c("lfracs", "nn_lfracs", "nn_fracs", "z"), function(stat) {
+  df %>%
+    ggplot() +
+    geom_point(aes(x=umap_1, y=umap_2, color=!!sym(stat)), size=0.1) +
+    scale_color_viridis_c()
+})
+p_list
+```
+
+
+
+
